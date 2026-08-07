@@ -22,12 +22,12 @@ def fetch_devices():
             ["system_profiler", "-json", "SPBluetoothDataType"],
             capture_output=True, text=True, timeout=5, check=True,
         ).stdout
-    except Exception as e:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
         return [], str(e)
 
     try:
         data = json.loads(out)["SPBluetoothDataType"][0]
-    except Exception as e:
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError) as e:
         return [], f"unexpected output: {e}"
 
     devices = []
@@ -84,7 +84,7 @@ def main(stdscr):
         stdscr.erase()
         h, w = stdscr.getmaxyx()
 
-        def put(y, x, text, attr=0):
+        def put(y, x, text, attr=0, h=h, w=w):
             if 0 <= y < h and x < w:
                 stdscr.addnstr(y, x, text, max(0, w - x - 1), attr)
 
@@ -133,10 +133,7 @@ def main(stdscr):
 
         if key in (ord("q"), ord("Q")):
             break
-        elif key in (ord("r"), ord("R")):
-            devices, error = fetch_devices()
-            last_fetch = time.time()
-        elif key == -1 and time.time() - last_fetch >= REFRESH_SECONDS:
+        elif key in (ord("r"), ord("R")) or (key == -1 and time.time() - last_fetch >= REFRESH_SECONDS):
             devices, error = fetch_devices()
             last_fetch = time.time()
 

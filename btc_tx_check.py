@@ -41,7 +41,7 @@ def fetch_tx(txid, testnet):
         return None, f"HTTP {e.code} {e.reason}"
     except urllib.error.URLError as e:
         return None, f"network error: {e.reason}"
-    except Exception as e:
+    except (json.JSONDecodeError, TimeoutError, OSError) as e:
         return None, str(e)
 
 
@@ -152,7 +152,7 @@ def main():
     if tx.get("status", {}).get("confirmed"):
         try:
             tip_height = fetch_tip_height(args.testnet)
-        except Exception:
+        except (urllib.error.URLError, ValueError, TimeoutError, OSError):
             tip_height = None
 
     print(render(tx, txid, args.testnet, tip_height))

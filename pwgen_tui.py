@@ -44,7 +44,7 @@ def copy_to_clipboard(text):
     try:
         subprocess.run(["pbcopy"], input=text.encode(), check=True)
         return True
-    except Exception:
+    except (subprocess.CalledProcessError, OSError):
         return False
 
 
@@ -84,7 +84,7 @@ def main(stdscr):
         stdscr.erase()
         h, w = stdscr.getmaxyx()
 
-        def put(y, x, text, attr=0):
+        def put(y, x, text, attr=0, h=h, w=w):
             if 0 <= y < h and x < w:
                 stdscr.addnstr(y, x, text, max(0, w - x - 1), attr)
 
@@ -107,7 +107,6 @@ def main(stdscr):
 
         # Controls
         y = box_y + 4
-        length_row = y
         marker = "> " if selected == 0 else "  "
         attr = curses.color_pair(3) | curses.A_BOLD if selected == 0 else 0
         put(y, 2, f"{marker}Length: < {length:3d} >", attr)

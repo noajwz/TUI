@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -134,7 +135,7 @@ def main():
 
     try:
         page = fetch_article(args.lang, topic)
-    except Exception as e:
+    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError, OSError) as e:
         print(f"Error contacting Wikipedia: {e}", file=sys.stderr)
         sys.exit(1)
 
@@ -142,7 +143,7 @@ def main():
         print(f"No article found for '{topic}'.")
         try:
             suggestions = search_suggestions(args.lang, topic)
-        except Exception:
+        except (urllib.error.URLError, json.JSONDecodeError, TimeoutError, OSError):
             suggestions = []
         if suggestions:
             print("\nDid you mean:")
