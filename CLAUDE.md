@@ -12,6 +12,7 @@ Run any of them directly:
 python3 bt_battery_tui.py    # curses; Bluetooth battery levels, polls every 5s
 python3 pwgen_tui.py         # curses; password generator, copies via pbcopy
 python3 tictactoe.py         # plain stdin/stdout; 2-player or minimax AI
+python3 claude_usage_tui.py [--once]   # Claude usage limits, read from ~/.claude.json
 python3 btc_tx_check.py <64-hex-txid> [--testnet]     # Blockstream API
 python3 wiki_reader.py <topic> [--lang nl]            # Wikipedia API, pipes to `less -R`
 python3 wiki_tui.py [topic] [--lang nl]               # full-screen Wikipedia browser
@@ -25,7 +26,7 @@ installed on this machine and there is no pyproject/ruff.toml** — it runs with
 
 Three shapes exist and each new script should follow one of them:
 
-- **curses TUIs** (`bt_battery_tui`, `pwgen_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
+- **curses TUIs** (`bt_battery_tui`, `pwgen_tui`, `claude_usage_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
   a `stdscr.timeout(...)` + `stdscr.getch()` event loop, module-level constants for tunables
   (`REFRESH_SECONDS`, `MIN_LEN`/`MAX_LEN`, option tables).
 - **CLI scripts** (`btc_tx_check`, `wiki_reader`): `argparse` in `main()`, raw ANSI escape constants
@@ -39,6 +40,10 @@ is the interactive browser. Keep `wiki_reader.py` as it is.
 
 macOS-specific by design: `system_profiler` for Bluetooth, `pbcopy` for the clipboard, `sips` for
 image conversion.
+
+`claude_usage_tui.py` reads the utilization block Claude Code caches in `~/.claude.json`. It is
+strictly read-only and makes no network calls — any running Claude Code session refreshes that cache,
+which is what makes it live rather than a snapshot. Keep it read-only.
 
 ## wiki_tui.py
 
