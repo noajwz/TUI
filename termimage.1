@@ -1,0 +1,196 @@
+.TH TERMIMAGE 1 "August 25, 2026" "TUI" "User Commands"
+.SH NAME
+termimage \- show images in the terminal, as pixels or as coloured characters
+.SH SYNOPSIS
+.B termimage.py
+.RI [ options ]
+.I image
+.br
+.B termimage.py
+.RI [ options ]
+.B \-\-wiki
+.I topic
+.br
+.B termimage.py \-\-probe
+.SH DESCRIPTION
+.B termimage
+displays a picture inside a terminal window. It has two completely different
+ways of doing that, and by default it works out which one your terminal can
+handle and uses the better one.
+.PP
+The
+.I image
+argument is either a path to a local file or an
+.B http://
+or
+.B https://
+URL. With
+.B \-\-wiki
+the picture is instead the lead image of a Wikipedia article, fetched by
+title.
+.PP
+PNG is handled directly. Other formats (JPEG, WebP, and so on) are converted
+first using
+.BR sips (1),
+which is part of macOS.
+.SH THE TWO APPROACHES
+.SS Approach B: real pixels
+The terminal is sent the image file itself and draws it with actual pixels,
+using the kitty graphics protocol. This looks like a photograph, because it is
+one. It requires a terminal that implements the protocol \(en kitty, Ghostty,
+WezTerm and Konsole do; Terminal.app does not.
+.SS Approach A: coloured characters
+Each character cell is filled with
+.RB \(lq \[u2580] \(rq
+(upper half block), with the foreground colour set to the top pixel and the
+background colour to the bottom one. That gives two pixels per cell, so a
+40-column picture is 40 by 60-odd pixels. It looks like a coloured mosaic, and
+it works in every terminal that supports 24-bit colour, including over
+.BR ssh (1)
+and inside
+.BR tmux (1).
+.PP
+If the terminal cannot do 24-bit colour either, brightness is mapped onto the
+characters
+.B " .:\-=+*#%@"
+instead, which needs nothing but ASCII.
+.SH OPTIONS
+.TP
+.BI \-\-mode " auto\fR|\fPkitty\fR|\fPblocks\fR|\fPascii\fR|\fPboth"
+Which rendering to use.
+.B auto
+(the default) asks the terminal what it supports and picks the best available.
+.B both
+draws the picture twice, once each way, with labels \(en the quickest way to
+see what your terminal is capable of.
+.TP
+.BI \-\-width " cells"
+How many columns wide to draw the picture. The height follows from the image's
+aspect ratio. Defaults to 60, and is capped to the width of the window.
+.TP
+.BI \-\-wiki " topic"
+Use the lead image of this Wikipedia article. The article title is printed
+above the picture.
+.TP
+.BI \-\-lang " code"
+Language edition to use with
+.BR \-\-wiki .
+Defaults to
+.BR en .
+.TP
+.BI \-\-bg " rrggbb"
+Background colour composited underneath transparent parts of the image, as six
+hex digits. Defaults to
+.BR 000000 .
+Only affects the character modes.
+.TP
+.BI \-\-transfer " auto\fR|\fPdirect\fR|\fPfile"
+How the image reaches a kitty-capable terminal.
+.B file
+writes a temporary file and sends only its path, which is a hundred-byte escape
+sequence rather than megabytes of base64; the terminal deletes the file itself.
+.B direct
+encodes the image inline in 4 KiB chunks, which is what you need when the
+terminal is at the other end of an
+.BR ssh (1)
+connection.
+.B auto
+(the default) picks
+.B direct
+when
+.B SSH_CONNECTION
+is set and
+.B file
+otherwise.
+.TP
+.B \-\-probe
+Print what this terminal supports \(en its size in cells, the pixel size of one
+cell, whether the kitty graphics protocol answered, whether
+.BR sips (1)
+is present, and which mode would be chosen \(en then exit.
+.SH EXAMPLES
+Find out what your terminal can do:
+.PP
+.RS
+.nf
+termimage.py \-\-probe
+.fi
+.RE
+.PP
+See both renderings of the same picture, one above the other:
+.PP
+.RS
+.nf
+termimage.py cat.png \-\-mode both
+.fi
+.RE
+.PP
+Show a Wikipedia article's picture, 40 columns wide:
+.PP
+.RS
+.nf
+termimage.py \-\-wiki "Ada Lovelace" \-\-width 40
+.fi
+.RE
+.PP
+Force the character mosaic even on a terminal that could do better, and
+composite transparency onto a dark grey instead of black:
+.PP
+.RS
+.nf
+termimage.py logo.png \-\-mode blocks \-\-bg 101010
+.fi
+.RE
+.PP
+Look at a picture on a remote machine over ssh:
+.PP
+.RS
+.nf
+termimage.py photo.jpg \-\-transfer direct
+.fi
+.RE
+.SH HOW SUPPORT IS DETECTED
+.B termimage
+does not guess from
+.BR $TERM .
+It sends the terminal a graphics query and, immediately behind it, a standard
+device attributes query, so that there is always a reply on its way. If the
+device attributes answer arrives without a graphics answer, the terminal does
+not speak the protocol and a character mode is used instead. The whole
+exchange takes well under a second, and falls back safely if the terminal says
+nothing at all.
+.SH EXIT STATUS
+.TP
+.B 0
+The image was displayed.
+.TP
+.B 1
+The image could not be read, fetched, or decoded; the reason is printed to
+standard error.
+.SH NOTES
+The built-in PNG decoder handles every still PNG: all five colour types, bit
+depths of 1, 2, 4, 8 and 16, every scanline filter, and Adam7 interlacing.
+This matters because
+.BR sips (1)
+preserves interlacing and bit depth when it converts a PNG to a PNG, so it
+cannot be used to rescue those two cases.
+.PP
+Animated formats are not supported; the first frame is not extracted.
+.PP
+With
+.BR \-\-transfer " file"
+the temporary file is deleted by the terminal, not by
+.BR termimage .
+If you force
+.BI \-\-mode " kitty"
+on a terminal that does not support the protocol, that file will be left behind
+in the temporary directory until the system cleans it up.
+.SH SEE ALSO
+.BR wiki_tui.py (1),
+.BR wiki_reader.py (1),
+.BR sips (1)
+.PP
+The kitty graphics protocol is documented at
+.UR https://sw.kovidgoyal.net/kitty/graphics\-protocol/
+sw.kovidgoyal.net
+.UE .
