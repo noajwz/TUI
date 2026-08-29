@@ -18,6 +18,7 @@ python3 wiki_reader.py <topic> [--lang nl]            # Wikipedia API, pipes to 
 python3 wiki_tui.py [topic] [--lang nl]               # full-screen Wikipedia browser
 python3 termimage.py IMAGE|--wiki TOPIC [--mode ...]  # images in the terminal
 python3 termimage.py --probe                          # what does this terminal support?
+python3 ascii_city.py        # curses; endless procedural city, skyline and street views
 ```
 
 Ruff is the linter (a `.ruff_cache/` from ruff 0.16.1 is present but gitignored). Ruff is **not
@@ -32,7 +33,7 @@ Three shapes exist and each new script should follow one of them:
 - **CLI scripts** (`btc_tx_check`, `wiki_reader`): `argparse` in `main()`, raw ANSI escape constants
   (`BOLD`, `CYAN`, `RESET`, …) defined at module top rather than a color library, and network helpers
   that return `(data, error)` tuples instead of raising.
-- **`wiki_tui`** and **`termimage`**, the two larger programs, described below.
+- **`wiki_tui`**, **`termimage`** and **`ascii_city`**, the larger programs, described below.
 
 `wiki_reader.py` and `wiki_tui.py` are deliberately separate takes on the same idea and neither
 supersedes the other: `wiki_reader` is the one-shot pager version (pipeable, scriptable), `wiki_tui`
@@ -103,3 +104,48 @@ Testing without a graphical terminal: fork a pty, answer the graphics query with
 and assert on the escapes the program emits (one `a=T` placement header, `m=1` on every chunk but the
 last, base64 payload reassembling into a valid PNG). Both the answering and silent cases must be
 tested, since the silent one is what exercises the fallback.
+
+## ascii_city.py
+
+An endless procedural city with **two renderers** over one screen loop. Both `render_skyline()` and
+`render_street()` return the same `(ch, co)` pair of character/colour grids, so the blit loop, the
+HUD and the input handling in `main()` serve either; `tab` switches, and each view keeps its own
+camera so switching back and forth loses neither position.
+
+Nothing about the city is stored. The world is cut into chunks seeded by name (`f"city|{layer}|{i}"`,
+`f"street|{side}|{i}"`), so the block you walked past regenerates identically when you walk back —
+`_cache` and `_street_cache` are throughput, not state, and clearing them changes nothing you can
+see. Generation stores a **`tone` float rather than a curses colour**: the palettes differ between an
+8-colour and a 256-colour terminal, and a building has to be the same building in both.
+
+The street view is one-point perspective with the vanishing point pinned — you translate but never
+turn — and cells are twice as tall as wide, so `View.fy` is half `View.fx`.
+
+- The facades are **two planes at fixed x**, so no ray casting is needed: a column with slope `t`
+  meets the plane at `X` at distance `(X - cam_x) / t`. Both sides are solved, and whichever has an
+  actual building nearer wins. That per-side `building_at()` returning `None` is what makes an alley
+  see-through rather than a wall.
+- There is **no depth buffer**. Three per-column arrays — distance, top row, base row — are the whole
+  of the depth information, because a facade is a vertical plane. That is why the sky is drawn
+  *after* the walls: an unlit window is a blank cell, so `wall_top` is the only thing that knows a
+  building is in the way, and `hidden()` is the test everything else uses.
+- A horizontal line on a facade is a **slope on screen**, steep when you are close, so roofs and
+  awnings go through `facade_line()`, which fills from the previous column's row to this one's. Draw
+  one cell per column instead and the line breaks into dashes.
+- A bay is many columns wide up close. Windows get the **middle** of their bay or the facade smears
+  into horizontal stripes; a sign letter gets **exactly one** column, the first of its bay
+  (`new_bay`), or the word stutters as `CCCLLLUUUBBB`.
+- `draw_hung_sign()` lays its letters out **in rows, not world units**. Spacing them by a true height
+  makes two of them round onto the same row as the sign recedes, and a HOTEL with the T missing is
+  worse than one slightly the wrong size.
+- The smoker's cigarette is drawn as its own point rather than left to the sprite art, because
+  nearest-neighbour downsampling drops single cells — and the ember is the thing still legible when
+  he is a smudge at the end of the street. His smoke keeps no state: a puff's position is a function
+  of how long ago the drag was.
+
+Testing it without a terminal: stub the module globals `init_colors()` would have set (`PALETTES`,
+`NEON`, `STAR`/`STREET`/`CURB`/…) with plain integers and call `render_street()` directly — it
+returns a grid of characters you can print or assert on. That covers geometry, determinism (render a
+spot, evict the cache by walking, render it again, compare) and sign/prop placement. For the curses
+half, fork a pty and set the size with `TIOCSWINSZ` as with `wiki_tui`. A complete frame — render,
+`addch` loop and `refresh` — costs about 4.4 ms at 240x70, comfortably inside the 30 FPS budget.
