@@ -18,7 +18,7 @@ python3 wiki_reader.py <topic> [--lang nl]            # Wikipedia API, pipes to 
 python3 wiki_tui.py [topic] [--lang nl]               # full-screen Wikipedia browser
 python3 termimage.py IMAGE|--wiki TOPIC [--mode ...]  # images in the terminal
 python3 termimage.py --probe                          # what does this terminal support?
-python3 ascii_city.py        # curses; endless procedural city, skyline and street views
+python3 ascii_city.py        # curses; endless procedural city in the rain, two views
 ```
 
 Ruff is the linter (a `.ruff_cache/` from ruff 0.16.1 is present but gitignored). Ruff is **not
@@ -108,44 +108,84 @@ tested, since the silent one is what exercises the fallback.
 ## ascii_city.py
 
 An endless procedural city with **two renderers** over one screen loop. Both `render_skyline()` and
-`render_street()` return the same `(ch, co)` pair of character/colour grids, so the blit loop, the
-HUD and the input handling in `main()` serve either; `tab` switches, and each view keeps its own
-camera so switching back and forth loses neither position.
+`render_street()` fill the same `(ch, co)` pair of character/colour grids, so the blit loop, the HUD
+and the input handling in `main()` serve either; `tab` switches, and each view keeps its own camera
+so switching back and forth loses neither position.
 
-Nothing about the city is stored. The world is cut into chunks seeded by name (`f"city|{layer}|{i}"`,
-`f"street|{side}|{i}"`), so the block you walked past regenerates identically when you walk back —
-`_cache` and `_street_cache` are throughput, not state, and clearing them changes nothing you can
-see. Generation stores a **`tone` float rather than a curses colour**: the palettes differ between an
-8-colour and a 256-colour terminal, and a building has to be the same building in both.
+Nothing about the city is stored. The skyline is cut into chunks seeded by name
+(`f"city|{layer}|{i}"`); the street's every question is answered by a hash of the cell's own
+coordinates. Caches (`_cache`, `_open_cache`, `_lots`, `_road_cache`) are throughput, not state —
+clearing them changes nothing you can see, and there is a test that proves it. Generation stores a
+**`tone` float rather than a curses colour**, because the palettes differ between an 8-colour and a
+256-colour terminal and a building has to be the same building in both.
 
-The street view is one-point perspective with the vanishing point pinned — you translate but never
-turn — and cells are twice as tall as wide, so `View.fy` is half `View.fx`.
+### The street view is a grid raycaster
 
-- The facades are **two planes at fixed x**, so no ray casting is needed: a column with slope `t`
-  meets the plane at `X` at distance `(X - cam_x) / t`. Both sides are solved, and whichever has an
-  actual building nearer wins. That per-side `building_at()` returning `None` is what makes an alley
-  see-through rather than a wall.
-- There is **no depth buffer**. Three per-column arrays — distance, top row, base row — are the whole
-  of the depth information, because a facade is a vertical plane. That is why the sky is drawn
-  *after* the walls: an unlit window is a blank cell, so `wall_top` is the only thing that knows a
-  building is in the way, and `hidden()` is the test everything else uses.
-- A horizontal line on a facade is a **slope on screen**, steep when you are close, so roofs and
-  awnings go through `facade_line()`, which fills from the previous column's row to this one's. Draw
-  one cell per column instead and the line breaks into dashes.
-- A bay is many columns wide up close. Windows get the **middle** of their bay or the facade smears
-  into horizontal stripes; a sign letter gets **exactly one** column, the first of its bay
-  (`new_bay`), or the word stutters as `CCCLLLUUUBBB`.
-- `draw_hung_sign()` lays its letters out **in rows, not world units**. Spacing them by a true height
-  makes two of them round onto the same row as the sign recedes, and a HOTEL with the T missing is
-  worse than one slightly the wrong size.
-- The smoker's cigarette is drawn as its own point rather than left to the sprite art, because
-  nearest-neighbour downsampling drops single cells — and the ember is the thing still legible when
-  he is a smudge at the end of the street. His smoke keeps no state: a puff's position is a function
-  of how long ago the drag was.
+It did not start that way: when you could only walk up and down one avenue, the facades were two
+planes at fixed `x` and a column could solve directly for what it saw. Free turning killed that.
+`cast()` now runs a DDA over cells of `CELL = 5.0` world units, in cell units so the arithmetic
+stays the standard form, and returns the walls a column meets nearest-first. Because the ray is
+built as `dir + plane * cam`, the distance that falls out is already measured along `dir`, so
+there is no fisheye to correct at the edges.
 
-Testing it without a terminal: stub the module globals `init_colors()` would have set (`PALETTES`,
-`NEON`, `STAR`/`STREET`/`CURB`/…) with plain integers and call `render_street()` directly — it
-returns a grid of characters you can print or assert on. That covers geometry, determinism (render a
-spot, evict the cache by walking, render it again, compare) and sign/prop placement. For the curses
-half, fork a pty and set the size with `TIOCSWINSZ` as with `wiki_tui`. A complete frame — render,
-`addch` loop and `refresh` — costs about 4.4 ms at 240x70, comfortably inside the 30 FPS budget.
+- **No depth buffer.** Three per-column arrays — distance, top row, base row — are the whole of the
+  depth information, because a facade is a vertical plane. That is why the sky is drawn *after* the
+  walls: an unlit window is a blank cell, so `wall_top` is the only thing that knows a building is
+  in the way, and `hidden()` is the test every prop, drop and reflection uses.
+- **Casting does not stop at the first wall**, because a tall building behind a short one still
+  shows over its roof. Hits are drawn near-first, each clipped to the rows above everything already
+  drawn, and the loop breaks once the cover reaches row 0.
+- **A ray that hits nothing** is looking out of the city down a cross street. `draw_sky()` gives
+  those columns a taller haze silhouette; without it the vanishing point is a hole.
+- A horizontal line on a facade is a **slope on screen**, so roofs and awnings go through
+  `facade_line()`, which fills from the previous column's row to this one's. One cell per column
+  instead and the line breaks into dashes.
+- **Corner bars are only for real corners.** Every cell is its own building, so a naive "the face
+  changed, draw a bar" test puts a picket fence down every street. `draw_walls()` first checks
+  whether the column to the left was the building *next door on the same plane*; that is a terrace,
+  and the step in the roof line is the only edge actually there.
+- Windows get the middle of their bay or a near facade smears into horizontal stripes; a flat sign
+  letter gets exactly one column, the first of its bay, or the word stutters as `CCCLLLUUUBBB`.
+  `draw_hung_sign()` lays its letters out **in rows, not world units** — spacing them by a true
+  height makes two of them round onto the same row as the sign recedes, and a HOTEL with the T
+  missing is worse than one slightly the wrong size.
+
+### Getting lost is the feature
+
+The layout is deliberately irregular, because the point is to be able to lose yourself in it.
+`_is_road()` puts avenues on a period but varies their width and offset and drops roughly one in
+thirteen entirely, so two blocks merge into a long one. `_is_alley()` cuts a one-cell passage
+through a block and then breaks it into stretches, one in five missing — that is what makes a dead
+end you have to back out of.
+
+`road_at()` is the switch everything hangs off: a face on a proper street gets neon, the lit
+palette and someone smoking outside it; a face on an alley gets the `dark` palette at any range,
+a third of the lit windows, a fire escape, a dumpster and a bare bulb over the door. No awning
+either — an alley has no shopfronts to put one over. That single boolean is why an alley reads as
+somewhere you should not go.
+
+### Rain
+
+`rain_intensity()` is three slow sines that never line up, so the weather swells to a downpour,
+eases and occasionally stops; the HUD says which. Everything else scales off that one number —
+drop count, the `~` standing on the road, how far neon spills, whether stars are out at all.
+
+Drops sit on a **world-locked lattice** so they hold still relative to the city while you walk and
+turn through them, and each is drawn as the segment it fell through since the last frame, which is
+what gives the streak its slant — the wind's and the perspective's — without faking anything in
+screen space. Reflections are exact rather than approximated: a mirror plane at `y = 0` puts the
+image of a thing at height `h` in the same column, which is all `View.reflect_row()` is.
+
+### Testing it
+
+Stub the module globals `init_colors()` would have set (`PALETTES`, `NEON`, `STAR`, `CURB`, `RAIN`,
+`BULB`, …) with plain integers and call `render_street(View(x, z, yaw, w, h), now)` directly — it
+returns a grid of characters to print or assert on, no terminal needed. That covers geometry,
+determinism (render a spot, walk far enough to evict every cache, render it again, compare), and
+navigation: 4000 `wander()` steps that never end up inside a wall. A quick ASCII dump of
+`is_open()` over a few hundred cells is the fastest way to judge whether the street plan is
+interesting. For the curses half, fork a pty and set the size with `TIOCSWINSZ` as with `wiki_tui`.
+
+A complete frame — render, `addch` loop and `refresh` — costs about 11 ms at 240x70 in a downpour
+against a 33 ms budget. If that ever slips, the levers in order are `near_lots()` reach,
+`RAIN_REACH` and `MAX_VIEW`.

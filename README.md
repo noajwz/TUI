@@ -8,7 +8,7 @@ script runs on its own with `python3`.
 
 | Script | What it does |
 | --- | --- |
-| `ascii_city.py` | Endless procedural city — walk past the skyline, or down the street itself |
+| `ascii_city.py` | Endless procedural city in the rain — walk the neon streets or get lost in an alley |
 | `wiki_tui.py` | Full-screen Wikipedia browser — followable links, search, contents, history |
 | `termimage.py` | Shows images in the terminal, as real pixels or as coloured characters |
 | `claude_usage_tui.py` | Live view of how much of your Claude usage limits is spent |
