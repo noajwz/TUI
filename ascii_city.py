@@ -505,10 +505,24 @@ _open_cache = {}
 _road_cache = {}
 
 
+def _evict(cache, limit):
+    """Drop the oldest third once a cache gets big.
+
+    Wiping the lot instead means the next frame has to rebuild every cell in
+    sight at once, which on a long walk is a visible hitch. Dicts keep their
+    insertion order, and while you are moving the oldest entries are the ones
+    behind you, so this throws away roughly what you have walked past."""
+    if len(cache) <= limit:
+        return
+    for k in list(cache)[:limit // 3]:
+        del cache[k]
+
+
 def _is_road(i, period, salt):
     key = i * 31 + salt
     hit = _road_cache.get(key)
     if hit is None:
+        _evict(_road_cache, 8000)
         k, r = divmod(i, period)
         m = _mix(k, 0, salt)
         if m % 13 == 0:
@@ -539,8 +553,7 @@ def is_open(i, j):
     key = i * 1048576 + j
     hit = _open_cache.get(key)
     if hit is None:
-        if len(_open_cache) > 60000:
-            _open_cache.clear()
+        _evict(_open_cache, 60000)
         hit = (road_at(i, j)
                or _is_alley(i, j, XP, 91, 211) or _is_alley(j, i, ZP, 137, 223)
                or _mix(i, j, 57) % 47 == 0)
@@ -630,8 +643,7 @@ def lot(i, j):
     key = i * 1048576 + j
     b = _lots.get(key)
     if b is None:
-        if len(_lots) > 6000:
-            _lots.clear()
+        _evict(_lots, 6000)
         rng = random.Random(f"lot|{i}|{j}")
         base = 11.0 + _mix(i // XP, j // ZP, 43) % 26      # the block's own scale
         b = {
@@ -1327,6 +1339,24 @@ BIN = [
     " |______| ",
 ]
 
+RAVER_UP = [
+    "\\,-./",
+    " (-) ",
+    " \\|/ ",
+    "  |  ",
+    " / \\ ",
+    "_| |_",
+]
+
+RAVER_DOWN = [
+    " ,-. ",
+    " (-) ",
+    "/ | \\",
+    "  |  ",
+    " / \\ ",
+    "_| |_",
+]
+
 SMOKER_H = 1.9         # how tall he is, in world units
 SMOKER_W = 0.79        # chosen so the art keeps its aspect ratio on screen
 
@@ -1427,6 +1457,34 @@ def draw_smoker(ch, co, v, walls, p, now, wet):
                   ".oOo."[min(4, int(age / 0.6))], SMOKE)
 
 
+def draw_raver(ch, co, v, walls, p, now, wet):
+    """Someone outside the club with a glow stick in each hand.
+
+    They are on the same clock as the sound system, so the whole pavement is
+    dancing to the same beat and goes white together on the kick. The sticks
+    are drawn as a short trail of their own past positions, which is the only
+    way a single moving cell reads as a light rather than as a speck."""
+    club = p["club"]
+    t = now * CLUB_BPM / 60.0 + club["phase"]
+    # All on the same beat, but not all on the same frame of it.
+    up = (t + p["swing"] * 0.18) % 1.0 < 0.5
+    lamp = club_light(now, club)
+    x, _, z = p["world"]
+    blit_sprite(ch, co, v, walls, RAVER_UP if up else RAVER_DOWN,
+                x, z, 0.05, SMOKER_H, SMOKER_W,
+                lamp if lamp is not None else CURB)
+
+    lit, dark = NEON[min(len(NEON) - 1, int(p["tone"] * len(NEON)))]
+    tx, tz = p["tangent"]
+    for hand in (0, math.pi):
+        for m in range(3):
+            a = (t + p["swing"]) * math.pi - m * 0.24 + hand
+            off = 0.44 * math.sin(a)
+            y = 1.5 + (0.42 if up else 0.0) + 0.34 * math.cos(a)
+            put_point(ch, co, v, walls, x + tx * off, y, z + tz * off,
+                      "*o."[m], lit if m == 0 else dark)
+
+
 def draw_hung_sign(ch, co, v, walls, s, world, now, wet):
     """A neon sign on a bracket over the pavement, letters stacked downwards -
     the one kind you can still read head-on from the far end of the street.
@@ -1483,13 +1541,23 @@ def draw_props(ch, co, v, walls, now, wet):
             if b["casino"] is not None:
                 continue
             if b["club"] is not None:
-                # Nobody is getting in for a while, and all of them smoke.
+                # Nobody is getting in for a while. Some of them are dancing
+                # anyway and the rest are smoking about it.
                 if f == b["club"]["door"]:
                     for q in range(5):
-                        w = face_point(i, j, f, 0.6 + q * 0.9, 1.15, 0.0)
-                        props.append((_d2(v, w), "smoker",
-                                      {"phase": (b["seed"] + q * 37) % 100 / 14.0},
-                                      w, (nx, nz)))
+                        w = face_point(i, j, f, 0.45 + q * 1.0, 1.15, 0.0)
+                        seed = b["seed"] + q * 37
+                        if seed % 5 < 3:
+                            props.append((_d2(v, w), "raver",
+                                          {"club": b["club"],
+                                           "tone": (seed % 97) / 97.0,
+                                           "swing": (seed % 31) / 31.0,
+                                           "tangent": (-nz, nx)},
+                                          w, (nx, nz)))
+                        else:
+                            props.append((_d2(v, w), "smoker",
+                                          {"phase": seed % 100 / 14.0},
+                                          w, (nx, nz)))
                 continue
             fc = b["faces"][f]
             lit = road_at(i + nx, j + nz)
@@ -1515,6 +1583,9 @@ def draw_props(ch, co, v, walls, now, wet):
     for _, kind, s, world, normal in props:
         if kind == "hung":
             draw_hung_sign(ch, co, v, walls, s, world, now, wet)
+        elif kind == "raver":
+            s["world"] = world
+            draw_raver(ch, co, v, walls, s, now, wet)
         elif kind == "smoker":
             draw_smoker(ch, co, v, walls,
                         {"world": world, "normal": normal, "phase": s["phase"]},
@@ -1706,15 +1777,20 @@ def probe(x, z, yaw, reach):
 
 
 def wander(x, z, yaw, now):
-    """Steer towards whatever is most open, with a slow bias that drifts, so it
-    follows streets, takes corners and every so often chooses the alley."""
-    best, best_turn = -1e9, 0.0
-    for off in (-1.15, -0.6, -0.25, 0.0, 0.25, 0.6, 1.15):
+    """Which way to lean, given what is open around you.
+
+    Picking the single best-scoring direction makes the walk twitch, because
+    the winner changes outright from one frame to the next. Blending all of
+    them by score gives a heading that moves continuously instead, and one that
+    sits between two equally good options rather than flipping between them."""
+    acc = weight = 0.0
+    for off in (-1.15, -0.75, -0.4, -0.15, 0.0, 0.15, 0.4, 0.75, 1.15):
         clear = probe(x, z, yaw + off, 22.0)
         score = clear + 5.0 * math.cos(off) + 7.0 * math.sin(now * 0.11 + off * 2.7)
-        if score > best:
-            best, best_turn = score, off
-    return best_turn
+        w = math.exp(score / 6.0)
+        acc += w * off
+        weight += w
+    return acc / weight
 
 
 # ===========================================================================
@@ -1914,6 +1990,7 @@ def main(stdscr):
     yaw = 0.0
     fwd = side = spin = 0.0
     last = {"sky": 0.0, "f": 0.0, "s": 0.0, "t": 0.0}
+    steer = 0.0                 # the autopilot's heading, eased not snapped
     wheel = None                # the roulette, while you stand in a casino
     wheel_at = 0.0
     autopilot = False
@@ -1963,9 +2040,15 @@ def main(stdscr):
         # A held-down key repeats, but with gaps. Rather than moving once per
         # keypress (jerky), we keep moving for a moment after each one.
         if autopilot:
-            sky_v = WALK_SPEED * 0.6
-            fwd, side = WALK * 0.62, 0.0
-            spin = max(-TURN, min(TURN, wander(cam_x, cam_z, yaw, now) * 2.2))
+            # Ease towards the heading rather than jumping onto it, and slow
+            # down through a turn the way you would walking round a corner.
+            steer += ((wander(cam_x, cam_z, yaw, now) - steer)
+                      * min(1.0, frame_time * 3.0))
+            spin = max(-TURN, min(TURN, steer * 2.0))
+            want = WALK * (0.66 - 0.30 * min(1.0, abs(steer)))
+            fwd += (want - fwd) * min(1.0, frame_time * 2.5)
+            side = 0.0
+            sky_v += (WALK_SPEED * 0.6 - sky_v) * min(1.0, frame_time * 2.5)
         else:
             if now - last["sky"] > KEY_GRACE:
                 sky_v = 0.0

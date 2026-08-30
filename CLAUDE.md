@@ -118,10 +118,20 @@ on the skyline, and a strike lights both. This is worth a test, and has one: tab
 in a dry, still postcard, which is exactly the kind of break that no amount of looking at one view
 will show you.
 
+`wander()`, behind the spacebar, blends every direction it probes by score instead of picking the
+best one. Picking the winner outright makes the walk twitch, because the winner changes from one
+frame to the next: measured over eighty seconds that was 395 hard snaps, some of them a full
+3.8-radian flip. Blending gives a heading that moves continuously and sits between two equally good
+options rather than flapping between them; `main()` then eases towards it and slows down through
+the turn, which takes the frame-to-frame change from 0.28 rad to 0.01.
+
 Nothing about the city is stored. The skyline is cut into chunks seeded by name
 (`f"city|{layer}|{i}"`); the street's every question is answered by a hash of the cell's own
 coordinates. Caches (`_cache`, `_open_cache`, `_lots`, `_road_cache`) are throughput, not state —
-clearing them changes nothing you can see, and there is a test that proves it. Generation stores a
+clearing them changes nothing you can see, and there is a test that proves it. They evict through
+`_evict()`, which drops the oldest third rather than wiping the lot: a full wipe makes the next
+frame rebuild every cell in sight at once, and on a long enough walk that is a visible hitch. Dicts
+keep insertion order, and while you are moving the oldest entries are the ones behind you. Generation stores a
 **`tone` float rather than a curses colour**, because the palettes differ between an 8-colour and a
 256-colour terminal and a building has to be the same building in both.
 
@@ -219,10 +229,15 @@ normal facade path, so there is no neon, no hung sign, no awning and no window g
 windowless slab, speckled rather than filled so it reads as a mass instead of a hole in the street.
 What gives it away is `club_light()`: four to the floor at 134 BPM, white on the kick, holding a
 laser colour for a fifth of a beat after it, and the strobe let off the leash for the whole of every
-eighth bar. That one function drives the slit windows under the roof, the door, and how far the
-light spills across the wet pavement — `collect_glow()` calls it too, so the puddles pulse in time.
-Outside the door is a queue of five, and since they are built out of the smoker they are all
-smoking, on staggered phases.
+eighth bar. That one function drives the slit windows under the roof, the door, how far the
+light spills across the wet pavement — `collect_glow()` calls it too, so the puddles pulse in time —
+and the five people outside, who go white together on the kick.
+
+Three of those five are ravers and the rest are smoking about it. `draw_raver()` puts them on the
+same clock as the sound system, offset by a fraction of a beat each so the pavement is in time
+without being in lockstep, and gives them a glow stick in each hand. A stick is drawn as a short
+trail of its own past positions: one moving cell reads as a speck, three read as a light. Keep the
+swing tight — at arm's length the trails of five dancers overlap into noise.
 
 ### The casino, and the one door in the city that opens
 
