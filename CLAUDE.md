@@ -112,12 +112,32 @@ An endless procedural city with **two renderers** over one screen loop. Both `re
 and the input handling in `main()` serve either; `tab` switches, and each view keeps its own camera
 so switching back and forth loses neither position.
 
+They also share one weather clock. Both call `rain_intensity(now)` and `lightning(now, wet)`
+themselves rather than being handed a number, so the downpour you tab out of is the downpour falling
+on the skyline, and a strike lights both. This is worth a test, and has one: tabbing used to land you
+in a dry, still postcard, which is exactly the kind of break that no amount of looking at one view
+will show you.
+
 Nothing about the city is stored. The skyline is cut into chunks seeded by name
 (`f"city|{layer}|{i}"`); the street's every question is answered by a hash of the cell's own
 coordinates. Caches (`_cache`, `_open_cache`, `_lots`, `_road_cache`) are throughput, not state —
 clearing them changes nothing you can see, and there is a test that proves it. Generation stores a
 **`tone` float rather than a curses colour**, because the palettes differ between an 8-colour and a
 256-colour terminal and a building has to be the same building in both.
+
+### The skyline is a waterfront
+
+Three parallax layers of chunk-generated buildings standing on the far bank, and the water in front
+of them. `dens` falling away with distance is most of what separates the layers — the far bank is a
+dim shape, the near one is a lit building — and `gap` widening as it comes forward is what keeps the
+near layer a row of towers with sky between them instead of a wall across the bottom. Both were the
+fix for a view that had become an unreadable mash of glyphs with no silhouette in it.
+
+`reflect()` mirrors everything above the waterline into the water. An ASCII reflection lives or dies
+on being broken up: same glyphs, displaced sideways by a swell that changes with depth and time, and
+thinned out with depth until it is gone in eight rows or so. Let it survive further down and it
+stops reading as water and starts reading as the picture having been printed twice. Rain roughens
+the surface, so the harder it comes down the less of the city you can read in it.
 
 ### The street view is a grid raycaster
 

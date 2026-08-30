@@ -41,10 +41,17 @@ WALK_SPEED = 20.0      # world columns per second
 # Each layer is one depth plane of the city.
 # parallax: 0.0 = infinitely far away (never moves), 1.0 = right next to you.
 # h and w are (min, max); h is a fraction of the available screen height.
+# dens is how many of a facade's windows are lit. Falling away with distance is
+# most of what separates the layers: the far bank is a dim shape, the near one
+# is a lit building. gap widens as it comes forward so the near layer is a row
+# of towers with sky between them rather than a wall across the bottom.
 LAYERS = [
-    dict(parallax=0.20, h=(0.20, 0.45), w=(5, 12),  gap=(1, 4), palette="far"),
-    dict(parallax=0.45, h=(0.30, 0.70), w=(7, 16),  gap=(1, 5), palette="mid"),
-    dict(parallax=1.00, h=(0.25, 0.98), w=(9, 24),  gap=(2, 7), palette="near"),
+    dict(parallax=0.20, h=(0.22, 0.48), w=(4, 10), gap=(2, 6),
+         dens=(0.06, 0.22), palette="far"),
+    dict(parallax=0.45, h=(0.30, 0.66), w=(6, 15), gap=(3, 8),
+         dens=(0.20, 0.50), palette="mid"),
+    dict(parallax=1.00, h=(0.28, 0.76), w=(8, 20), gap=(5, 15),
+         dens=(0.38, 0.80), palette="near"),
 ]
 
 # --- street view ---
@@ -247,7 +254,7 @@ def make_building(rng, avail_rows, spec):
     glyphs = rng.sample(WINDOW_GLYPHS, 2)   # each building uses its own 2 glyphs
     col_step = rng.choice([1, 2, 2, 3])     # spacing between window columns
     row_step = rng.choice([1, 1, 2])        # spacing between window rows
-    density = rng.uniform(0.45, 0.90)       # how many of those slots are lit
+    density = rng.uniform(*spec["dens"])    # how many of those slots are lit
 
     rows = []
 
@@ -333,7 +340,10 @@ def blit(dst_ch, dst_co, b, sx, ground):
                 dst_co[y][x] = b["color"]
 
 
-def draw_stars(ch, co, cam_x, ground):
+def draw_stars(ch, co, cam_x, ground, wet):
+    """Stars, unless the cloud that is raining on you has come over."""
+    if wet > 0.25:
+        return
     width = len(ch[0])
     off = cam_x * 0.05          # stars drift very slowly = very far away
     for sx in range(width):
@@ -344,41 +354,115 @@ def draw_stars(ch, co, cam_x, ground):
             co[y][sx] = STAR
 
 
-def draw_street(ch, co, cam_x, ground):
+def draw_flash_sky(ch, co, water, flash):
+    """The same lightning that is going off over the street, seen from here:
+    the sky goes pale and the whole skyline turns into a shape against it."""
+    if flash < 0.05:
+        return
+    width = len(ch[0])
+    for y in range(water):
+        row, rowc = ch[y], co[y]
+        for x in range(width):
+            if row[x] == " " and _mix(x, y, 29) % 100 < flash * 96:
+                row[x] = "." if flash < 0.5 else ":"
+                rowc[x] = FLASH
+
+
+def reflect(ch, co, water, now, wet, flash):
+    """Mirror the city into the water below the far bank.
+
+    A reflection in ASCII lives or dies on being broken up: it is the same
+    glyphs, displaced sideways by a swell that changes with depth and time, and
+    thinned out the further down it goes until it is gone. Rain roughens the
+    surface, so the harder it comes down the less of the city you can read in
+    it."""
     height = len(ch)
     width = len(ch[0])
-
-    # Lamp posts, at fixed world positions, drawn in front of everything.
-    for wx in range(int(cam_x) - 2, int(cam_x) + width + 2):
-        if wx % 17 == 0:
-            sx = int(wx - cam_x)
-            if 0 <= sx < width:
-                for dy, glyph in ((0, "|"), (1, "|"), (2, "|"), (3, "o")):
-                    y = ground - dy
-                    if 0 <= y < height:
-                        ch[y][sx] = glyph
-                        co[y][sx] = STAR if glyph == "o" else STREET
-
-    # The road itself, below the buildings.
-    for y in range(ground + 1, height):
+    chop = int(now * 3.0)
+    for y in range(water + 1, height):
+        d = y - water                      # how far down into the water
+        src = water - d
+        if src < 0:
+            return
+        shift = int(round(2.2 * math.sin(now * 1.3 + d * 0.7)
+                          + 1.5 * wet * math.sin(now * 4.1 + d * 1.9)))
+        keep = 82 - d * 9 - int(30 * wet)
+        if keep <= 0:
+            return
+        row, rowc = ch[src], co[src]
         for x in range(width):
-            wx = int(x + cam_x)
-            if y == ground + 2 and wx % 6 < 3:
-                ch[y][x] = "-"            # centre line, scrolls as you walk
-                co[y][x] = STREET
-            elif y == ground + 1 and wx % 11 == 0:
-                ch[y][x] = "."
-                co[y][x] = STREET
+            sx = x + shift
+            if not 0 <= sx < width:
+                continue
+            glyph = row[sx]
+            if glyph == " " or _mix(x, y, 61 + chop) % 100 >= keep:
+                continue
+            ch[y][x] = glyph
+            co[y][x] = rowc[sx] if flash > 0.35 else rowc[sx] & ~curses.A_BOLD
 
 
-def render_skyline(cam_x, width, height):
-    ground = max(3, height - 4)          # the row the buildings stand on
+def draw_water(ch, co, water, now, wet):
+    """The surface itself: the line of the far bank, and the chop on it."""
+    height = len(ch)
+    width = len(ch[0])
+    for x in range(width):
+        ch[water][x] = "~" if _mix(x, 0, 41) % 5 else "-"
+        co[water][x] = CURB
+    every = max(3, 13 - int(8 * wet))      # rain dimples the whole surface
+    chop = int(now * 2.0)
+    for y in range(water + 1, height):
+        row, rowc = ch[y], co[y]
+        for x in range(width):
+            if row[x] == " " and _mix(x, y * 3 + chop, 83) % every == 0:
+                row[x] = "~"
+                rowc[x] = RAIN_FAR if wet > 0.3 else STREET
+
+
+def draw_skyline_rain(ch, co, cam_x, water, now, wet, flash):
+    """Rain across the vista, locked to the world so it drifts past as you walk
+    rather than sitting still on the screen."""
+    if wet < 0.03:
+        return
+    height = len(ch)
+    width = len(ch[0])
+    wind = 3.2 * math.sin(now / 23.0)
+    span = height + 6
+    base = int(cam_x)
+    for salt in (907, 911):
+        for wx in range(base - 2, base + width + 2):
+            m = _mix(wx, salt, 5)
+            if (m & 255) > wet * 170:
+                continue
+            phase = ((m >> 8) & 255) / 256.0
+            y = (now * 26.0 + phase * span) % span - 3.0
+            x = wx - base
+            for dy in range(2 + ((m >> 17) & 1)):
+                yy = int(y) - dy
+                xx = x + int(dy * wind * 0.2)
+                if not (0 <= yy < height and 0 <= xx < width):
+                    continue
+                if ch[yy][xx] != " ":
+                    continue           # it falls behind the city, not over it
+                ch[yy][xx] = "|" if abs(wind) < 1.6 else ("\\" if wind > 0 else "/")
+                co[yy][xx] = FLASH if flash > 0.35 else (
+                    RAIN if yy > water - 6 else RAIN_FAR)
+
+
+def render_skyline(cam_x, width, height, now):
+    """The city from across the water, in whatever weather the street is in.
+
+    Both views share one clock, so the downpour you walked in out of is the
+    downpour falling here, and a strike lights them both."""
+    wet = rain_intensity(now)
+    flash = lightning(now, wet)
+    water = max(5, min(height - 4, int(height * 0.58)))
+    ground = water - 1                   # the far bank the city stands on
     avail = ground + 1
 
     ch = [[" "] * width for _ in range(height)]
     co = [[0] * width for _ in range(height)]
 
-    draw_stars(ch, co, cam_x, ground)
+    draw_stars(ch, co, cam_x, ground, wet)
 
     for li, spec in enumerate(LAYERS):
         off = cam_x * spec["parallax"]   # nearer layers slide past faster
@@ -391,7 +475,10 @@ def render_skyline(cam_x, width, height):
                     continue
                 blit(ch, co, b, sx, ground)
 
-    draw_street(ch, co, cam_x, ground)
+    draw_flash_sky(ch, co, water, flash)
+    reflect(ch, co, water, now, wet, flash)
+    draw_water(ch, co, water, now, wet)
+    draw_skyline_rain(ch, co, cam_x, water, now, wet, flash)
     return ch, co
 
 
@@ -1809,7 +1896,7 @@ def render_roulette(spin, width, height, now):
 # Main loop
 # ---------------------------------------------------------------------------
 
-SKYLINE_HUD = " x=%-7d  tab view  arrows/hl walk  HL run  space wander  q quit "
+SKYLINE_HUD = " x=%-6d %s  tab view  arrows/hl walk  HL run  space wander  q quit "
 STREET_HUD = " %d,%d %s  tab view  ws walk  ad turn  ,. step  space wander  q quit "
 ROULETTE_HUD = " %s  -  you are inside at %d,%d  -  s walks back out  -  q quit "
 
@@ -1923,8 +2010,8 @@ def main(stdscr):
             ch, co, wet = render_street(v, now)
             hud = STREET_HUD % (cam_x, cam_z, weather_word(wet))
         else:
-            ch, co = render_skyline(sky_x, width, height)
-            hud = SKYLINE_HUD % sky_x
+            ch, co = render_skyline(sky_x, width, height, now)
+            hud = SKYLINE_HUD % (sky_x, weather_word(rain_intensity(now)))
 
         stdscr.erase()
         for y in range(height):
