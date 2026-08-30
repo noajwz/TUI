@@ -204,6 +204,32 @@ light spills across the wet pavement — `collect_glow()` calls it too, so the p
 Outside the door is a queue of five, and since they are built out of the smoker they are all
 smoking, on staggered phases.
 
+### The casino, and the one door in the city that opens
+
+Same odds as the club (`CLUB_ODDS`, different salt) and mutually exclusive with it, so a building is
+never both. `draw_casino_column()` is the club's opposite in every respect: bulbs chasing round the
+roof and the door canopy, its name across the front in neon, and every window in the place lit.
+`chase()` is the running-bulb pattern — a function of where the bulb is and what time it is, so the
+whole building agrees on it without anything being stored.
+
+**It is the only building you can enter.** Everything else in the city is a solid cell that
+`can_stand()` keeps you out of; the casino is a proximity trigger instead of an interior.
+`casino_at()` scans the 5x5 cells around you for a door within `CASINO_REACH`, and while you are
+standing in one, `main()` renders the wheel instead of the street. Walk back out and it is gone.
+Stand there and it deals you another after `CASINO_AGAIN` seconds, which is the joke and also
+correct. Movement keys stay live throughout — `s` is how you leave.
+
+`Spin` draws the result first and then solves the flight to end on it: the ball eases to a stop over
+a whole number of turns plus exactly the offset that lands it in the right pocket. So the wheel is
+honest — a uniform `randrange(37)` — but the animation never has to guess where it is going, and
+there is a test that casts 2000 spins back from the final angle and checks they agree.
+
+`WHEEL` is the real single-zero pocket order, which is not decorative: it is what puts high next to
+low and red next to black the whole way round, and you can watch it turn. `_spin_rng` is the one
+random source in this file that is deliberately **not** seeded from position — everything else is a
+hash of where you are so the city is the same city every time, but a wheel you could predict is not
+a wheel.
+
 ### Testing it
 
 Stub the module globals `init_colors()` would have set (`PALETTES`, `NEON`, `STAR`, `CURB`, `RAIN`,
@@ -214,11 +240,20 @@ navigation: 4000 `wander()` steps that never end up inside a wall. A quick ASCII
 `is_open()` over a few hundred cells is the fastest way to judge whether the street plan is
 interesting. For the curses half, fork a pty and set the size with `TIOCSWINSZ` as with `wiki_tui`.
 
-Rarity is worth asserting on rather than eyeballing, because both of these are rare enough that
-you will not see one by accident in a test run: measure the gap between strikes over a simulated
-few hundred minutes, and the mean spacing of clubs over a few hundred cells. Watch out for one trap
+Rarity is worth asserting on rather than eyeballing, because these are rare enough that you will
+not see one by accident in a test run: measure the gap between strikes over a simulated few hundred
+minutes, and the mean spacing of clubs and casinos over a few hundred cells. Watch out for one trap
 — the colour stub gives every colour the same id, so a test that counts "cells lit white" has to
 give `FLASH` a distinct sentinel first or it matches the whole screen.
+
+The casino is the one thing here that headless rendering cannot check, because it lives in
+`main()`'s loop rather than in a render function. Drive it through a pty with `start_position()`
+monkeypatched to a spot outside a casino whose door faces -z, walk in with `w`, and look for
+`FAITES VOS JEUX` then a result then a second spin then `tab view` on the way out. Slice the **raw**
+bytes and strip ANSI per segment — stripping first and then slicing by byte offset silently reads
+the wrong window and will tell you a working feature is broken. That test earned its keep
+immediately: `spin` was already the yaw rate in `main()`, and the wheel shadowing it was invisible
+to every headless check.
 
 A complete frame — render, `addch` loop and `refresh` — costs about 11 ms at 240x70 in a downpour
 against a 33 ms budget. If that ever slips, the levers in order are `near_lots()` reach,

@@ -81,9 +81,14 @@ STRIKE_SLOT = 34.0     # seconds per slot in which a strike might happen
 STRIKE_ODDS = 7        # and only one slot in this many has one
 STRIKE_WET = 0.62      # it has to be coming down this hard for a storm at all
 
-# --- the club ---
+# --- the club, and the casino across town ---
 CLUB_ODDS = 1200       # one building in this many is one, and it is unmarked
 CLUB_BPM = 134.0
+CASINO_REACH = 1.55    # how close to the door you have to get to be inside
+CASINO_AGAIN = 1.6     # seconds before it deals you another one
+
+CASINO_NAMES = ["ROYALE", "GOLDEN", "LUCKY", "ACES", "MIRAGE", "JACKPOT",
+                "FORTUNA", "DIAMOND", "SPHINX", "MONTE"]
 
 WINDOW_GLYPHS = "08XZ:+=*%@o.#"
 
@@ -104,11 +109,13 @@ PALETTES = {}      # e.g. {"near": [3, 7, 12, ...]} -> lists of curses pair numb
 NEON = []          # [(lit, unlit), ...] - one entry per neon tube colour
 STAR = STREET = HUD = CURB = HAZE = SMOKE = EMBER = EMBER_HOT = 0
 RAIN = RAIN_FAR = BULB = BULB_DIM = FLASH = CONCRETE = 0
+GOLD = GOLD_DIM = ROU_RED = ROU_BLACK = ROU_GREEN = 0
 
 
 def init_colors():
     global PALETTES, NEON, STAR, STREET, HUD, CURB, HAZE, SMOKE, EMBER
     global EMBER_HOT, RAIN, RAIN_FAR, BULB, BULB_DIM, FLASH, CONCRETE
+    global GOLD, GOLD_DIM, ROU_RED, ROU_BLACK, ROU_GREEN
 
     curses.start_color()
     try:
@@ -132,7 +139,9 @@ def init_colors():
         extras = {"star": 254, "street": 240, "hud": 245, "curb": 246,
                   "haze": 237, "smoke": 244, "ember": 166, "ember_hot": 208,
                   "rain": 110, "rain_far": 60, "bulb": 222, "bulb_dim": 58,
-                  "flash": 231, "concrete": 234}
+                  "flash": 231, "concrete": 234, "gold": 220,
+                  "gold_dim": 136, "rou_red": 196, "rou_black": 252,
+                  "rou_green": 46}
         attrs = {}
     else:
         # 8-colour fallback: bold = the "bright" version of a colour.
@@ -153,7 +162,10 @@ def init_colors():
                   "ember": curses.COLOR_RED, "ember_hot": curses.COLOR_RED,
                   "rain": curses.COLOR_CYAN, "rain_far": curses.COLOR_BLUE,
                   "bulb": curses.COLOR_YELLOW, "bulb_dim": curses.COLOR_BLACK,
-                  "flash": curses.COLOR_WHITE, "concrete": curses.COLOR_BLACK}
+                  "flash": curses.COLOR_WHITE, "concrete": curses.COLOR_BLACK,
+                  "gold": curses.COLOR_YELLOW, "gold_dim": curses.COLOR_YELLOW,
+                  "rou_red": curses.COLOR_RED, "rou_black": curses.COLOR_WHITE,
+                  "rou_green": curses.COLOR_GREEN}
         attrs = {"near": curses.A_BOLD}
 
     pair = 1
@@ -195,6 +207,11 @@ def init_colors():
     BULB_DIM = made["bulb_dim"]
     FLASH = made["flash"] | curses.A_BOLD
     CONCRETE = made["concrete"]
+    GOLD = made["gold"] | curses.A_BOLD
+    GOLD_DIM = made["gold_dim"]
+    ROU_RED = made["rou_red"] | curses.A_BOLD
+    ROU_BLACK = made["rou_black"] | curses.A_BOLD
+    ROU_GREEN = made["rou_green"] | curses.A_BOLD
 
 
 def tone_colour(name, tone):
@@ -540,13 +557,21 @@ def lot(i, j):
         b["faces"] = [make_face(rng, b["height"]) for _ in range(4)]
         # Every so often the slab is not offices at all. Drawn last so that
         # deciding it changes nothing about the building it was going to be.
-        b["club"] = None
+        b["club"] = b["casino"] = None
         if _mix(i, j, 909) % CLUB_ODDS == 0:
             b["height"] = rng.uniform(7.5, 12.0)      # squat, windowless
             b["club"] = {"door": rng.randrange(4),
                          "u": rng.uniform(1.4, CELL - 1.4),
                          "tone": rng.random(),
                          "phase": rng.uniform(0.0, 4.0)}
+        elif _mix(i, j, 911) % CLUB_ODDS == 0:
+            # Same odds as the club and the exact opposite of it in every
+            # other respect.
+            b["height"] = rng.uniform(9.0, 16.0)
+            b["casino"] = {"door": rng.randrange(4),
+                           "u": rng.uniform(1.4, CELL - 1.4),
+                           "name": rng.choice(CASINO_NAMES),
+                           "tone": rng.random()}
         _lots[key] = b
     return b
 
@@ -782,6 +807,86 @@ def draw_club_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge, cont,
     return roof, None, None
 
 
+def chase(u, now, period=0.8):
+    """A running bulb chase, the kind that goes round a casino sign. Lit is a
+    function of where the bulb is and what time it is, so the whole building
+    agrees on the pattern without anything being stored."""
+    return (int(u / 0.55) - int(now * 9.0)) % 3 == 0
+
+
+def draw_casino_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge,
+                       cont, now):
+    """One column of a casino: everything the club is not.
+
+    Bulbs chasing round the roof and the door, its name across the front in
+    neon, and every window in the place lit."""
+    scale = v.fy / dist
+    cas = b["casino"]
+    trim = FLASH if v.flash > 0.35 else GOLD_DIM
+    roof = int(round(v.horizon - (b["height"] - EYE_Y) * scale))
+
+    if edge:
+        for y in range(r_lo, r_hi + 1):
+            ch[y][sx] = "|"
+            co[y][sx] = trim
+        return roof, None, None
+
+    prev_roof, prev_awn, prev_k = cont
+    awning = int(round(v.horizon - (FLOOR_H - EYE_Y) * scale))
+    facade_line(ch, co, sx, roof, prev_roof, r_lo, r_hi, "=", trim)
+    facade_line(ch, co, sx, awning, prev_awn, r_lo, r_hi, "-", trim)
+
+    # Bulbs along the roof and along the canopy over the door.
+    for row in (roof, awning):
+        if r_lo <= row <= r_hi and chase(u, now):
+            ch[row][sx] = "o"
+            co[row][sx] = GOLD
+
+    # The name, in neon, across the middle of the front.
+    text = cas["name"]
+    step = CELL / (len(text) + 1.0)
+    letter_k = None
+    k = int((u - CELL / (2.0 * (len(text) + 1.0))) / step)
+    if 0 <= k < len(text):
+        letter_k = k
+    sign_floor = max(1, int(b["height"] / FLOOR_H) - 2)
+    neon = NEON[min(len(NEON) - 1, int(cas["tone"] * len(NEON)))][0]
+
+    bay = int(u / BAY_W)
+    frac = u / BAY_W - bay
+    lit_bay = BAY_W * v.fx / dist <= 2.0 or 0.30 < frac < 0.70
+    thick = max(1, min(5, int(FLOOR_H * scale * 0.45)))
+    gold = tone_colour("near", 0.55)
+
+    for f in range(int(b["height"] / FLOOR_H)):
+        y = int(round(v.horizon - ((f + 0.55) * FLOOR_H - EYE_Y) * scale))
+        if y > r_hi or y + thick < r_lo:
+            continue
+        if letter_k is not None and f == sign_floor:
+            if prev_k == letter_k:
+                continue
+            glyph, attr = text[letter_k], neon
+        elif not lit_bay:
+            continue
+        elif f == 0:
+            if abs(u - cas["u"]) < 0.9:
+                glyph, attr = ("o", GOLD) if chase(u + now, now) else ("#", GOLD_DIM)
+            else:
+                glyph, attr = "#", gold
+        else:
+            # Nobody in a casino ever turns a light off.
+            m = _mix(b["seed"] + face, f, bay)
+            if (m & 0xFFFF) / 65535.0 >= 0.88:
+                continue
+            glyph, attr = b["glyphs"][(m >> 17) & 1], gold
+        for dy in range(thick):
+            yy = y + dy
+            if r_lo <= yy <= r_hi:
+                ch[yy][sx] = glyph
+                co[yy][sx] = attr
+    return roof, awning, letter_k
+
+
 def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
                      edge, cont, lit, now):
     """One screen column of one facade. Returns what the caller needs to keep
@@ -789,6 +894,9 @@ def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
     if b["club"] is not None:
         return draw_club_column(ch, co, v, sx, dist, b, face, u,
                                 r_lo, r_hi, edge, cont, now)
+    if b["casino"] is not None:
+        return draw_casino_column(ch, co, v, sx, dist, b, face, u,
+                                  r_lo, r_hi, edge, cont, now)
     scale = v.fy / dist
     trim = tone_colour("dark" if not lit else "far", b["tone"])
     if v.flash > 0.35:
@@ -987,6 +1095,10 @@ def collect_glow(v, now, wet):
                     if lamp is not None:
                         p = face_point(i, j, f, b["club"]["u"], 1.0, 0.0)
                         _spill(glow, p[0], p[2], 5.5, lamp)
+                continue
+            if b["casino"] is not None:
+                p = face_point(i, j, f, CELL * 0.5, 1.0, 0.0)
+                _spill(glow, p[0], p[2], 6.0, GOLD_DIM)
                 continue
             fc = b["faces"][f]
             if road_at(i + nx, j + nz):
@@ -1281,6 +1393,8 @@ def draw_props(ch, co, v, walls, now, wet):
             nx, nz = FACES[f]
             if not is_open(i + nx, j + nz):
                 continue
+            if b["casino"] is not None:
+                continue
             if b["club"] is not None:
                 # Nobody is getting in for a while, and all of them smoke.
                 if f == b["club"]["door"]:
@@ -1516,12 +1630,188 @@ def wander(x, z, yaw, now):
     return best_turn
 
 
+# ===========================================================================
+# THE CASINO - the one place in the city you can walk into
+# ===========================================================================
+
+# A single-zero wheel, in the order the pockets actually come in. That order is
+# not decorative: it is what puts high next to low and red next to black all
+# the way round, and you can see it turning.
+WHEEL = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23,
+         10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]
+REDS = frozenset([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32,
+                  34, 36])
+
+DIGITS = {
+    "0": ("###", "# #", "# #", "# #", "###"),
+    "1": ("  #", "  #", "  #", "  #", "  #"),
+    "2": ("###", "  #", "###", "#  ", "###"),
+    "3": ("###", "  #", "###", "  #", "###"),
+    "4": ("# #", "# #", "###", "  #", "  #"),
+    "5": ("###", "#  ", "###", "  #", "###"),
+    "6": ("###", "#  ", "###", "# #", "###"),
+    "7": ("###", "  #", "  #", "  #", "  #"),
+    "8": ("###", "# #", "###", "# #", "###"),
+    "9": ("###", "# #", "###", "  #", "###"),
+}
+
+# Everything else in this file is a hash of where you are, so that the city is
+# the same city every time you walk back to it. This one thing is not, and must
+# not be: a wheel you could predict is not a wheel.
+_spin_rng = random.Random()
+
+SPIN_TIME = 5.2        # seconds of ball before it drops
+HOLD_TIME = 3.6        # and how long the number stays up afterwards
+
+
+def pocket_colour(n):
+    return ROU_GREEN if n == 0 else (ROU_RED if n in REDS else ROU_BLACK)
+
+
+class Spin:
+    """One throw of the ball.
+
+    The result is drawn first and the flight is then solved to end on it: the
+    ball eases to a stop over a whole number of turns plus exactly the offset
+    that lands it in the right pocket, so the wheel is honest but the animation
+    never has to guess where it is going."""
+
+    def __init__(self, now, name):
+        self.name = name
+        self.t0 = now
+        self.result = _spin_rng.randrange(37)
+        self.idx = WHEEL.index(self.result)
+        self.wheel0 = _spin_rng.uniform(0.0, math.tau)
+        self.wheel_w = -0.55 - _spin_rng.random() * 0.25   # the wheel's own turn
+        self.ball0 = _spin_rng.uniform(0.0, math.tau)
+        turns = 7 + _spin_rng.randrange(4)
+        end = self.wheel_at(SPIN_TIME) + self.idx * math.tau / 37.0
+        # However far round that is from where the ball starts, plus whole turns.
+        self.sweep = turns * math.tau + (end - self.ball0) % math.tau
+
+    def wheel_at(self, t):
+        return self.wheel0 + self.wheel_w * t
+
+    def ball_at(self, t):
+        if t >= SPIN_TIME:
+            return self.wheel_at(t) + self.idx * math.tau / 37.0
+        k = 1.0 - t / SPIN_TIME
+        return self.ball0 + self.sweep * (1.0 - k * k * k)
+
+    def settled(self, now):
+        return now - self.t0 >= SPIN_TIME
+
+    def done(self, now):
+        return now - self.t0 >= SPIN_TIME + HOLD_TIME
+
+
+def casino_at(x, z):
+    """The casino you are standing in the doorway of, or None."""
+    ci = int(x / CELL + BIG) - BIG
+    cj = int(z / CELL + BIG) - BIG
+    for i in range(ci - 2, ci + 3):
+        for j in range(cj - 2, cj + 3):
+            if is_open(i, j):
+                continue
+            b = lot(i, j)
+            if b["casino"] is None:
+                continue
+            f = b["casino"]["door"]
+            nx, nz = FACES[f]
+            if not is_open(i + nx, j + nz):
+                continue
+            p = face_point(i, j, f, b["casino"]["u"], 1.4, 0.0)
+            if ((p[0] - x) ** 2 + (p[2] - z) ** 2) < CASINO_REACH ** 2:
+                return b["casino"]
+    return None
+
+
+def _text(ch, co, y, x, s, attr):
+    for k, c in enumerate(s):
+        if 0 <= y < len(ch) and 0 <= x + k < len(ch[0]) and c != " ":
+            ch[y][x + k] = c
+            co[y][x + k] = attr
+
+
+def _big(ch, co, y, x, s, attr):
+    """The winning number, twice as wide as the little font so it reads square."""
+    for row in range(5):
+        col = x
+        for c in s:
+            for px in DIGITS.get(c, ("   ",) * 5)[row]:
+                if px != " ":
+                    for d in (0, 1):
+                        if 0 <= y + row < len(ch) and 0 <= col + d < len(ch[0]):
+                            ch[y + row][col + d] = "#"
+                            co[y + row][col + d] = attr
+                col += 2
+            col += 2
+
+
+def render_roulette(spin, width, height, now):
+    ch = [[" "] * width for _ in range(height)]
+    co = [[0] * width for _ in range(height)]
+    t = now - spin.t0
+    cx = (width - 1) / 2.0
+    cy = height * 0.47
+    rx = min(width * 0.40, 48.0)
+    ry = min(height * 0.34, 12.0)
+
+    if rx < 12 or ry < 4:            # too small a window for a wheel
+        _text(ch, co, height // 2, 1, "%s: %d" % (spin.name, spin.result),
+              pocket_colour(spin.result))
+        return ch, co
+
+    _text(ch, co, 0, max(0, int(cx) - len(spin.name) // 2 - 4),
+          "* %s *" % spin.name, GOLD)
+
+    wa = spin.wheel_at(t)
+    for k, num in enumerate(WHEEL):
+        a = wa + k * math.tau / 37.0
+        label = str(num)
+        x = int(round(cx + rx * math.cos(a))) - (len(label) - 1) // 2
+        y = int(round(cy - ry * math.sin(a)))
+        attr = pocket_colour(num)
+        if spin.settled(now) and num == spin.result:
+            attr = attr | curses.A_REVERSE
+        _text(ch, co, y, x, label, attr)
+
+    # The ball rides inside the numbers, and drops into the pocket at the end.
+    ba = spin.ball_at(t)
+    br = 0.72 if t < SPIN_TIME else 0.86
+    bx = int(round(cx + rx * br * math.cos(ba)))
+    by = int(round(cy - ry * br * math.sin(ba)))
+    if 0 <= by < height and 0 <= bx < width:
+        ch[by][bx] = "O" if spin.settled(now) else "o"
+        co[by][bx] = FLASH
+
+    mid = int(cy)
+    if spin.settled(now):
+        label = str(spin.result)
+        w = len(label) * 8 - 2
+        _big(ch, co, mid - 2, int(cx - w / 2), label, pocket_colour(spin.result))
+        word = "ZERO" if spin.result == 0 else (
+            "RED" if spin.result in REDS else "BLACK")
+        if spin.result:
+            word += "  %s  %s" % ("EVEN" if spin.result % 2 == 0 else "ODD",
+                                  "1-18" if spin.result <= 18 else "19-36")
+        _text(ch, co, mid + 4, int(cx - len(word) / 2), word,
+              pocket_colour(spin.result))
+    else:
+        say = "RIEN NE VA PLUS" if t > SPIN_TIME * 0.45 else "FAITES VOS JEUX"
+        _text(ch, co, mid, int(cx - len(say) / 2), say, GOLD_DIM)
+
+    _text(ch, co, height - 2, 2, "walk back out (s) to leave", GOLD_DIM)
+    return ch, co
+
+
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 
 SKYLINE_HUD = " x=%-7d  tab view  arrows/hl walk  HL run  space wander  q quit "
 STREET_HUD = " %d,%d %s  tab view  ws walk  ad turn  ,. step  space wander  q quit "
+ROULETTE_HUD = " %s  -  you are inside at %d,%d  -  s walks back out  -  q quit "
 
 
 def main(stdscr):
@@ -1537,6 +1827,8 @@ def main(stdscr):
     yaw = 0.0
     fwd = side = spin = 0.0
     last = {"sky": 0.0, "f": 0.0, "s": 0.0, "t": 0.0}
+    wheel = None                # the roulette, while you stand in a casino
+    wheel_at = 0.0
     autopilot = False
     frame_time = 1.0 / FPS
 
@@ -1610,9 +1902,23 @@ def main(stdscr):
         if can_stand(cam_x, nz):
             cam_z = nz
 
+        # Walking into a casino doorway is the one way into a building in
+        # this city. Walk back out and the wheel goes away; stand there and it
+        # deals you another, because that is what a casino is for.
+        house = casino_at(cam_x, cam_z) if street else None
+        if house is None:
+            wheel = None
+        elif wheel is None or (wheel.done(now)
+                               and now - wheel_at > CASINO_AGAIN):
+            wheel = Spin(now, house["name"])
+            wheel_at = now + SPIN_TIME + HOLD_TIME
+
         # --- draw ------------------------------------------------------
         height, width = stdscr.getmaxyx()
-        if street:
+        if wheel is not None:
+            ch, co = render_roulette(wheel, width, height, now)
+            hud = ROULETTE_HUD % (wheel.name, cam_x, cam_z)
+        elif street:
             v = View(cam_x, cam_z, yaw, width, height)
             ch, co, wet = render_street(v, now)
             hud = STREET_HUD % (cam_x, cam_z, weather_word(wet))
