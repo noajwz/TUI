@@ -184,7 +184,13 @@ there is no fisheye to correct at the edges.
 
 The layout is deliberately irregular, because the point is to be able to lose yourself in it.
 `_is_road()` puts avenues on a period but varies their width and offset and drops roughly one in
-thirteen entirely, so two blocks merge into a long one. `_is_alley()` cuts a one-cell passage
+thirteen entirely, so two blocks merge into a long one — **but never two in a row**. Left to chance
+they clump, and three missing avenues in a row leaves a 180-unit stretch with no cross street
+anywhere in it. That is rare enough that you only meet one after wandering for a while, which is
+exactly what made it hard to pin down when it was reported as "the streets change when walking for a
+long time": it stops reading as a long block and starts reading as the city having quietly turned
+into somewhere else. `_built_over()` gating on its own predecessor caps the run at one and holds the
+worst gap to 90 units, while still merging as many blocks as before. `_is_alley()` cuts a one-cell passage
 through a block and then breaks it into stretches, one in five missing — that is what makes a dead
 end you have to back out of.
 

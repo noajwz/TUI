@@ -518,6 +518,10 @@ def _evict(cache, limit):
         del cache[k]
 
 
+def _built_over(k, salt):
+    return _mix(k, 0, salt) % 13 == 0
+
+
 def _is_road(i, period, salt):
     key = i * 31 + salt
     hit = _road_cache.get(key)
@@ -525,8 +529,13 @@ def _is_road(i, period, salt):
         _evict(_road_cache, 8000)
         k, r = divmod(i, period)
         m = _mix(k, 0, salt)
-        if m % 13 == 0:
-            hit = False                      # this one was never cut through
+        # An avenue may be built over, but never two in a row. Left to chance
+        # they clump: three in a row leaves a 180-unit stretch with no cross
+        # street anywhere in it, and that stops reading as a long block and
+        # starts reading as the city having quietly changed into somewhere
+        # else. One at a time still merges two blocks, which is the point.
+        if _built_over(k, salt) and not _built_over(k - 1, salt):
+            hit = False
         else:
             off = (m >> 9) % 2
             hit = off <= r < off + 2 + ((m >> 4) & 1)
@@ -1991,6 +2000,7 @@ def main(stdscr):
     fwd = side = spin = 0.0
     last = {"sky": 0.0, "f": 0.0, "s": 0.0, "t": 0.0}
     steer = 0.0                 # the autopilot's heading, eased not snapped
+    blocked = False             # did the last step run into something
     wheel = None                # the roulette, while you stand in a casino
     wheel_at = 0.0
     autopilot = False
@@ -2041,9 +2051,10 @@ def main(stdscr):
         # keypress (jerky), we keep moving for a moment after each one.
         if autopilot:
             # Ease towards the heading rather than jumping onto it, and slow
-            # down through a turn the way you would walking round a corner.
+            # down through a turn the way you would walking round a corner -
+            # but turn away smartly when the last step got you nowhere.
             steer += ((wander(cam_x, cam_z, yaw, now) - steer)
-                      * min(1.0, frame_time * 3.0))
+                      * min(1.0, frame_time * (7.0 if blocked else 3.0)))
             spin = max(-TURN, min(TURN, steer * 2.0))
             want = WALK * (0.66 - 0.30 * min(1.0, abs(steer)))
             fwd += (want - fwd) * min(1.0, frame_time * 2.5)
@@ -2066,11 +2077,13 @@ def main(stdscr):
         dx = math.sin(yaw) * fwd + math.cos(yaw) * side
         dz = math.cos(yaw) * fwd - math.sin(yaw) * side
         nx = cam_x + dx * frame_time
+        moved = False
         if can_stand(nx, cam_z):
-            cam_x = nx
+            cam_x, moved = nx, True
         nz = cam_z + dz * frame_time
         if can_stand(cam_x, nz):
-            cam_z = nz
+            cam_z, moved = nz, True
+        blocked = not moved and (fwd or side)
 
         # Walking into a casino doorway is the one way into a building in
         # this city. Walk back out and the wheel goes away; stand there and it
