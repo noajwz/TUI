@@ -164,17 +164,45 @@ a third of the lit windows, a fire escape, a dumpster and a bare bulb over the d
 either — an alley has no shopfronts to put one over. That single boolean is why an alley reads as
 somewhere you should not go.
 
-### Rain
+### Rain and lightning
 
 `rain_intensity()` is three slow sines that never line up, so the weather swells to a downpour,
 eases and occasionally stops; the HUD says which. Everything else scales off that one number —
 drop count, the `~` standing on the road, how far neon spills, whether stars are out at all.
+
+`lightning()` is deliberately, testably **rare**: about one strike every five or six minutes, and
+only while `wet >= STRIKE_WET`, so it belongs to the storm rather than happening at random. Time is
+cut into slots and only one slot in seven has a strike in it, which is the same
+answer-from-a-hash trick the layout uses — no state, and the same strike at the same moment however
+you got there. One clean flash reads as a rendering bug, so a strike is two or three sub-flashes a
+tenth of a second apart with an afterglow decaying behind them.
+
+A flash is the only thing in the program that reaches across every pass at once, through `v.flash`:
+the sky fills pale so everything with a roof turns into a silhouette against it, every corner and
+roof line goes white, the rain lights up, the road takes a wash — and `wall_colour()` promotes alley
+faces from the `dark` palette to `far`, which for half a second shows you what is down there.
 
 Drops sit on a **world-locked lattice** so they hold still relative to the city while you walk and
 turn through them, and each is drawn as the segment it fell through since the last frame, which is
 what gives the streak its slant — the wind's and the perspective's — without faking anything in
 screen space. Reflections are exact rather than approximated: a mirror plane at `y = 0` puts the
 image of a thing at height `h` in the same column, which is all `View.reflect_row()` is.
+
+### The club
+
+One building in `CLUB_ODDS` is not offices — roughly one every 265 world units, so you come across
+one every few minutes of wandering. It is decided last in `lot()`, after the faces are made, so that
+being a club changes nothing about the building it was otherwise going to be.
+
+It carries **no sign of any kind**, which is the point: `draw_club_column()` replaces the whole
+normal facade path, so there is no neon, no hung sign, no awning and no window grid — just a squat
+windowless slab, speckled rather than filled so it reads as a mass instead of a hole in the street.
+What gives it away is `club_light()`: four to the floor at 134 BPM, white on the kick, holding a
+laser colour for a fifth of a beat after it, and the strobe let off the leash for the whole of every
+eighth bar. That one function drives the slit windows under the roof, the door, and how far the
+light spills across the wet pavement — `collect_glow()` calls it too, so the puddles pulse in time.
+Outside the door is a queue of five, and since they are built out of the smoker they are all
+smoking, on staggered phases.
 
 ### Testing it
 
@@ -185,6 +213,12 @@ determinism (render a spot, walk far enough to evict every cache, render it agai
 navigation: 4000 `wander()` steps that never end up inside a wall. A quick ASCII dump of
 `is_open()` over a few hundred cells is the fastest way to judge whether the street plan is
 interesting. For the curses half, fork a pty and set the size with `TIOCSWINSZ` as with `wiki_tui`.
+
+Rarity is worth asserting on rather than eyeballing, because both of these are rare enough that
+you will not see one by accident in a test run: measure the gap between strikes over a simulated
+few hundred minutes, and the mean spacing of clubs over a few hundred cells. Watch out for one trap
+— the colour stub gives every colour the same id, so a test that counts "cells lit white" has to
+give `FLASH` a distinct sentinel first or it matches the whole screen.
 
 A complete frame — render, `addch` loop and `refresh` — costs about 11 ms at 240x70 in a downpour
 against a 33 ms budget. If that ever slips, the levers in order are `near_lots()` reach,

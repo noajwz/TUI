@@ -76,6 +76,15 @@ RAIN_TOP = 17.0        # how high above the road a drop starts
 RAIN_SPEED = 24.0      # world units per second
 RAIN_STREAK = 0.028    # seconds of fall drawn as one streak
 
+# --- lightning ---
+STRIKE_SLOT = 34.0     # seconds per slot in which a strike might happen
+STRIKE_ODDS = 7        # and only one slot in this many has one
+STRIKE_WET = 0.62      # it has to be coming down this hard for a storm at all
+
+# --- the club ---
+CLUB_ODDS = 1200       # one building in this many is one, and it is unmarked
+CLUB_BPM = 134.0
+
 WINDOW_GLYPHS = "08XZ:+=*%@o.#"
 
 SIGN_WORDS = [
@@ -94,12 +103,12 @@ SIGN_WORDS = [
 PALETTES = {}      # e.g. {"near": [3, 7, 12, ...]} -> lists of curses pair numbers
 NEON = []          # [(lit, unlit), ...] - one entry per neon tube colour
 STAR = STREET = HUD = CURB = HAZE = SMOKE = EMBER = EMBER_HOT = 0
-RAIN = RAIN_FAR = BULB = BULB_DIM = 0
+RAIN = RAIN_FAR = BULB = BULB_DIM = FLASH = CONCRETE = 0
 
 
 def init_colors():
     global PALETTES, NEON, STAR, STREET, HUD, CURB, HAZE, SMOKE, EMBER
-    global EMBER_HOT, RAIN, RAIN_FAR, BULB, BULB_DIM
+    global EMBER_HOT, RAIN, RAIN_FAR, BULB, BULB_DIM, FLASH, CONCRETE
 
     curses.start_color()
     try:
@@ -122,7 +131,8 @@ def init_colors():
                 (208, 94), (46, 22), (141, 60), (226, 58)]
         extras = {"star": 254, "street": 240, "hud": 245, "curb": 246,
                   "haze": 237, "smoke": 244, "ember": 166, "ember_hot": 208,
-                  "rain": 110, "rain_far": 60, "bulb": 222, "bulb_dim": 58}
+                  "rain": 110, "rain_far": 60, "bulb": 222, "bulb_dim": 58,
+                  "flash": 231, "concrete": 234}
         attrs = {}
     else:
         # 8-colour fallback: bold = the "bright" version of a colour.
@@ -142,7 +152,8 @@ def init_colors():
                   "haze": curses.COLOR_BLUE, "smoke": curses.COLOR_WHITE,
                   "ember": curses.COLOR_RED, "ember_hot": curses.COLOR_RED,
                   "rain": curses.COLOR_CYAN, "rain_far": curses.COLOR_BLUE,
-                  "bulb": curses.COLOR_YELLOW, "bulb_dim": curses.COLOR_BLACK}
+                  "bulb": curses.COLOR_YELLOW, "bulb_dim": curses.COLOR_BLACK,
+                  "flash": curses.COLOR_WHITE, "concrete": curses.COLOR_BLACK}
         attrs = {"near": curses.A_BOLD}
 
     pair = 1
@@ -182,6 +193,8 @@ def init_colors():
     RAIN_FAR = made["rain_far"]
     BULB = made["bulb"] | curses.A_BOLD
     BULB_DIM = made["bulb_dim"]
+    FLASH = made["flash"] | curses.A_BOLD
+    CONCRETE = made["concrete"]
 
 
 def tone_colour(name, tone):
@@ -525,6 +538,15 @@ def lot(i, j):
             "seed": rng.randrange(1 << 28),
         }
         b["faces"] = [make_face(rng, b["height"]) for _ in range(4)]
+        # Every so often the slab is not offices at all. Drawn last so that
+        # deciding it changes nothing about the building it was going to be.
+        b["club"] = None
+        if _mix(i, j, 909) % CLUB_ODDS == 0:
+            b["height"] = rng.uniform(7.5, 12.0)      # squat, windowless
+            b["club"] = {"door": rng.randrange(4),
+                         "u": rng.uniform(1.4, CELL - 1.4),
+                         "tone": rng.random(),
+                         "phase": rng.uniform(0.0, 4.0)}
         _lots[key] = b
     return b
 
@@ -581,6 +603,8 @@ class View:
         self.cx = (width - 1) / 2.0
         self.fx = self.cx / PLANE
         self.fy = self.fx * 0.5
+        self.wet = 0.0          # how hard it is raining, 0..1
+        self.flash = 0.0        # how bright the lightning is this instant
 
     def ray(self, sx):
         cam = 2.0 * sx / (self.width - 1) - 1.0
@@ -669,11 +693,14 @@ def wall_span(v, dist, height):
             int(math.ceil(v.horizon + EYE_Y * scale)))
 
 
-def wall_colour(b, dist, lit):
+def wall_colour(b, dist, lit, flash=0.0):
     """Distance fog - and an alley face gets the dark palette at any range,
-    which is the whole reason an alley reads as somewhere you shouldn't go."""
+    which is the whole reason an alley reads as somewhere you shouldn't go.
+
+    Except for the half second a lightning flash lasts, when you can suddenly
+    see what is down there."""
     if not lit:
-        return tone_colour("dark", b["tone"])
+        return tone_colour("far" if flash > 0.35 else "dark", b["tone"])
     if dist < 34.0:
         return tone_colour("near", b["tone"])
     if dist < 70.0:
@@ -711,12 +738,63 @@ def facade_line(ch, co, sx, row, prev_row, r_lo, r_hi, glyph, attr):
         co[y][sx] = attr
 
 
+def draw_club_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge, cont,
+                     now):
+    """One column of a windowless concrete slab with a sound system in it.
+
+    It carries no sign of any kind, which is the joke and also the point: the
+    only things that give it away are the light going off behind the slit
+    windows on the beat, the door, and the queue standing outside in the rain."""
+    scale = v.fy / dist
+    club = b["club"]
+    trim = FLASH if v.flash > 0.35 else CONCRETE
+    roof = int(round(v.horizon - (b["height"] - EYE_Y) * scale))
+
+    if edge:
+        for y in range(r_lo, r_hi + 1):
+            ch[y][sx] = "|"
+            co[y][sx] = trim
+        return roof, None, None
+
+    facade_line(ch, co, sx, roof, cont[0], r_lo, r_hi, "=", trim)
+
+    # Bare concrete. Speckled rather than filled, so it reads as a mass with
+    # no windows in it instead of as a hole in the street.
+    for y in range(r_lo, r_hi + 1, 2):
+        if _mix(b["seed"], sx & 7, y) % 5 == 0:
+            ch[y][sx] = "."
+            co[y][sx] = CONCRETE
+
+    lamp = club_light(now, club)
+
+    # A band of slit windows under the roof, and the light behind them.
+    slit = int(round(v.horizon - (b["height"] - 1.7 - EYE_Y) * scale))
+    if r_lo <= slit <= r_hi and int(u / 1.1) % 2 == 0:
+        ch[slit][sx] = "=" if lamp is None else "#"
+        co[slit][sx] = CONCRETE if lamp is None else lamp
+
+    # The door. Steel, shut most of the time, and blinding when it is not.
+    if face == club["door"] and abs(u - club["u"]) < 0.8:
+        head = int(round(v.horizon - (2.3 - EYE_Y) * scale))
+        for y in range(max(r_lo, head), r_hi + 1):
+            ch[y][sx] = "#" if lamp is not None else "]"
+            co[y][sx] = lamp if lamp is not None else CONCRETE
+    return roof, None, None
+
+
 def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
                      edge, cont, lit, now):
     """One screen column of one facade. Returns what the caller needs to keep
     the lines along it joined up in the next column."""
+    if b["club"] is not None:
+        return draw_club_column(ch, co, v, sx, dist, b, face, u,
+                                r_lo, r_hi, edge, cont, now)
     scale = v.fy / dist
     trim = tone_colour("dark" if not lit else "far", b["tone"])
+    if v.flash > 0.35:
+        # Lightning picks out every edge in the city at once, which is what
+        # makes a flash read as a flash rather than as the screen blinking.
+        trim = FLASH
     roof = int(round(v.horizon - (b["height"] - EYE_Y) * scale))
     awning = int(round(v.horizon - (FLOOR_H - EYE_Y) * scale))
 
@@ -752,7 +830,7 @@ def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
     bay_cols = BAY_W * v.fx / dist
     lit_bay = bay_cols <= 2.0 or 0.30 < frac < 0.70
 
-    colour = wall_colour(b, dist, lit)
+    colour = wall_colour(b, dist, lit, v.flash)
     thick = max(1, min(5, int(FLOOR_H * scale * 0.45)))   # windows have height
     density = b["density"] if lit else b["density"] * 0.35
 
@@ -879,6 +957,13 @@ def draw_sky(ch, co, v, walls, wet):
             if 0 <= y < top:
                 ch[y][sx] = ":" if d else "."
                 co[y][sx] = HAZE
+        if v.flash > 0.05:
+            # The whole sky goes pale, so everything with a roof on it turns
+            # into a black shape against it.
+            for y in range(0, min(top, v.horizon)):
+                if _mix(sx, y, 29) % 100 < v.flash * 96:
+                    ch[y][sx] = "." if v.flash < 0.5 else ":"
+                    co[y][sx] = FLASH
 
 
 GLOW_CELL = 1.6
@@ -895,6 +980,13 @@ def collect_glow(v, now, wet):
         for f in range(4):
             nx, nz = FACES[f]
             if not is_open(i + nx, j + nz):
+                continue
+            if b["club"] is not None:
+                if f == b["club"]["door"]:
+                    lamp = club_light(now, b["club"])
+                    if lamp is not None:
+                        p = face_point(i, j, f, b["club"]["u"], 1.0, 0.0)
+                        _spill(glow, p[0], p[2], 5.5, lamp)
                 continue
             fc = b["faces"][f]
             if road_at(i + nx, j + nz):
@@ -998,6 +1090,8 @@ def draw_ground(ch, co, v, walls, glow, wet, now):
                     glyph, attr = ".", STREET
             if g is not None:
                 attr = g
+            if v.flash > 0.3 and _mix(int(x * 2.0), int(z * 2.0), 19) % 3 == 0:
+                attr = FLASH
             ch[y][sx] = glyph
             co[y][sx] = attr
 
@@ -1187,6 +1281,15 @@ def draw_props(ch, co, v, walls, now, wet):
             nx, nz = FACES[f]
             if not is_open(i + nx, j + nz):
                 continue
+            if b["club"] is not None:
+                # Nobody is getting in for a while, and all of them smoke.
+                if f == b["club"]["door"]:
+                    for q in range(5):
+                        w = face_point(i, j, f, 0.6 + q * 0.9, 1.15, 0.0)
+                        props.append((_d2(v, w), "smoker",
+                                      {"phase": (b["seed"] + q * 37) % 100 / 14.0},
+                                      w, (nx, nz)))
+                continue
             fc = b["faces"][f]
             lit = road_at(i + nx, j + nz)
             if lit:
@@ -1247,6 +1350,48 @@ def rain_intensity(now):
     return max(0.0, min(1.0, v))
 
 
+def lightning(now, wet):
+    """How bright the sky is this instant, 0..1.
+
+    Storms only happen in heavy rain, and even then only one slot in three has
+    a strike in it, so this is quiet for minutes at a time - which is the whole
+    point of it. A strike is two or three sub-flashes a tenth of a second apart
+    with an afterglow, because one clean flash reads as a rendering bug."""
+    if wet < STRIKE_WET:
+        return 0.0
+    k = int(now / STRIKE_SLOT)
+    m = _mix(k, 0, 401)
+    if m % STRIKE_ODDS:
+        return 0.0
+    at = k * STRIKE_SLOT + ((m >> 8) & 1023) / 1023.0 * (STRIKE_SLOT - 3.0)
+    t = now - at
+    if not 0.0 <= t < 1.3:
+        return 0.0
+    b = 0.0
+    for n, (delay, amp) in enumerate(((0.0, 1.0), (0.11, 0.72), (0.27, 0.45))):
+        if n == 2 and (m >> 20) & 1:
+            break                       # some of them only flicker twice
+        if 0.0 <= t - delay < 0.07:
+            b = max(b, amp)
+    return max(b, 0.3 * math.exp(-(t - 0.3) * 4.0) if t > 0.3 else 0.0)
+
+
+def club_light(now, club):
+    """What is coming out of the club this instant, or None while it is dark.
+
+    Four to the floor at 134, with the strobe let off the leash at the end of
+    every eighth bar."""
+    t = now * CLUB_BPM / 60.0 + club["phase"]
+    beat = t % 1.0
+    if (int(t) // 4) % 8 == 7 and int(t * 8) % 2:
+        return FLASH                    # the strobe run that ends a phrase
+    if beat < 0.11:
+        return FLASH                    # the kick
+    if beat < 0.32:
+        return NEON[min(len(NEON) - 1, int(club["tone"] * len(NEON)))][0]
+    return None
+
+
 def weather_word(wet):
     if wet < 0.04:
         return "dry"
@@ -1298,7 +1443,8 @@ def draw_rain(ch, co, v, walls, now, wet):
             p0 = v.project(x + blow0, y0, z)
             if p0 is None or p1 is None:
                 continue
-            attr = RAIN if perp < 9.0 else RAIN_FAR
+            attr = FLASH if v.flash > 0.35 else (
+                RAIN if perp < 9.0 else RAIN_FAR)
             _streak(ch, co, v, walls, p0, p1, attr)
 
 
@@ -1320,7 +1466,8 @@ def _streak(ch, co, v, walls, p0, p1, attr):
 def render_street(v, now):
     ch = [[" "] * v.width for _ in range(v.height)]
     co = [[0] * v.width for _ in range(v.height)]
-    wet = rain_intensity(now)
+    wet = v.wet = rain_intensity(now)
+    v.flash = lightning(now, wet)
 
     walls = draw_walls(ch, co, v, now)
     draw_sky(ch, co, v, walls, wet)
