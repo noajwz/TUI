@@ -12,6 +12,7 @@ Run any of them directly:
 python3 bt_battery_tui.py    # curses; Bluetooth battery levels, polls every 5s
 python3 pwgen_tui.py         # curses; password generator, copies via pbcopy
 python3 tictactoe.py         # plain stdin/stdout; 2-player or minimax AI
+python3 wordle_tui.py [--daily] [--hard] [--seed N] [--word W]   # curses; Wordle
 python3 claude_usage_tui.py [--once]   # Claude usage limits, read from ~/.claude.json
 python3 btc_tx_check.py <64-hex-txid> [--testnet]     # Blockstream API
 python3 wiki_reader.py <topic> [--lang nl]            # Wikipedia API, pipes to `less -R`
@@ -27,7 +28,7 @@ installed on this machine and there is no pyproject/ruff.toml** — it runs with
 
 Three shapes exist and each new script should follow one of them:
 
-- **curses TUIs** (`bt_battery_tui`, `pwgen_tui`, `claude_usage_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
+- **curses TUIs** (`bt_battery_tui`, `pwgen_tui`, `claude_usage_tui`, `wordle_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
   a `stdscr.timeout(...)` + `stdscr.getch()` event loop, module-level constants for tunables
   (`REFRESH_SECONDS`, `MIN_LEN`/`MAX_LEN`, option tables).
 - **CLI scripts** (`btc_tx_check`, `wiki_reader`): `argparse` in `main()`, raw ANSI escape constants
@@ -299,3 +300,30 @@ to every headless check.
 A complete frame — render, `addch` loop and `refresh` — costs about 11 ms at 240x70 in a downpour
 against a 33 ms budget. If that ever slips, the levers in order are `near_lots()` reach,
 `RAIN_REACH` and `MAX_VIEW`.
+
+## wordle_tui.py
+
+Standard curses shape, but three things are worth knowing before changing it.
+
+**Two vocabularies, not one.** `ANSWERS` is a hand-kept list of ~1200 common words and is the only
+thing that can *be* the answer; guesses are checked against `ANSWERS | /usr/share/dict/words`. That
+split is the point: `web2` is Webster's 1913, so it happily supplies `aalii` and `rybat` — fine to
+guess, never fair to have to guess — while *missing* `pixel`, `pasta` and `women`. Neither list
+works alone. A missing dictionary degrades to `ANSWERS` rather than failing.
+
+**`score_guess()` spends each answer letter once.** The position pass runs first and the near pass
+draws only from what it left behind, so `llama` against `hello` marks two near `L`s and no more, and
+`eerie` against `opera` marks only the first `E`. Scoring each letter independently is the classic
+bug here, and it looks correct until a guess repeats a letter.
+
+**The layout is a ladder, not a breakpoint.** `choose_layout()` walks `LAYOUTS` roomiest-first and
+takes the first that fits, so a short window loses the gaps between grid rows before it loses the
+boxed tiles. `rows_needed()` has to stay in step with what `draw()` actually consumes — the on-screen
+keyboard is the piece that silently falls off the bottom when it doesn't.
+
+Testing it without a human: fork a pty as with `wiki_tui`, set the size with `TIOCSWINSZ` *before*
+the child paints its first frame, and read the fd **non-blocking** — a blocking `os.read` just hangs
+once the program is idle in `getch`. Replaying the escapes onto a grid to assert on a frame needs
+`CHA`/`VPA` (`ESC[nG`, `ESC[nd`) handled, since that is how ncurses moves the cursor absolutely;
+ignore them and every row lands in column 0. The pure halves need no pty at all — call
+`score_guess()`, `hard_mode_error()` and `choose_layout()` directly.

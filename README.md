@@ -16,6 +16,7 @@ script runs on its own with `python3`.
 | `btc_tx_check.py` | Looks up a Bitcoin transaction by its hash |
 | `bt_battery_tui.py` | Battery levels of connected Bluetooth devices |
 | `pwgen_tui.py` | Password generator with a curses interface |
+| `wordle_tui.py` | Wordle — six tries at a five-letter word, with hard mode and a shareable grid |
 | `tictactoe.py` | Tic-tac-toe, two players or against an unbeatable AI |
 
 `man ./termimage.1` documents the image viewer.
