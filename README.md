@@ -12,6 +12,7 @@ script runs on its own with `python3`.
 | `wiki_tui.py` | Full-screen Wikipedia browser — followable links, search, contents, history |
 | `termimage.py` | Shows images in the terminal, as real pixels or as coloured characters |
 | `claude_usage_tui.py` | Live view of how much of your Claude usage limits is spent |
+| `rooster_tui.py` | Work roster from an `.ics` subscription feed, re-fetched while you watch |
 | `wiki_reader.py` | One-shot Wikipedia reader that pipes into `less` |
 | `btc_tx_check.py` | Looks up a Bitcoin transaction by its hash |
 | `bt_battery_tui.py` | Battery levels of connected Bluetooth devices |
