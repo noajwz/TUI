@@ -123,6 +123,17 @@ WINDOW_GLYPHS = "08XZ:+=*%@o.#"
 # neon is which of the eight tubes the district's signs may use, by index, or
 # None for any of them - that is what makes Chinatown red and gold and downtown
 # every colour at once.
+#
+# The rest is the wall itself, and it matters more than any of the above: from
+# the street you see four storeys of frontage and hardly any roofline, so a
+# district told apart only by how tall and how lit it is cannot be told apart
+# at all. glyphs is the window alphabet; band draws a line at every storey
+# (balconies, or the ribs of a corrugated shed); mullion draws a vertical one
+# at every bay, which is what a glass curtain wall looks like and nothing else
+# does; ground is what the shopfronts are made of and gap how often there is a
+# doorway instead. alley_lit is yokocho's whole character - signs and warm
+# light down the back lane, where every other district has a bare bulb and the
+# dark palette.
 # ---------------------------------------------------------------------------
 
 DISTRICT_CELLS = 36        # about 180 world units square, a few blocks
@@ -130,31 +141,58 @@ DISTRICT_CELLS = 36        # about 180 world units square, a few blocks
 DISTRICTS = [
     dict(key="d", name="downtown", weight=7, scale=1.5, lo=12.0, hi=58.0,
          dens=(0.26, 0.70), flat=0.45, hung=0.45, smoke=0.30, bulb=0.45,
-         neon=None, lantern=0.0, park=False),
+         neon=None, lantern=0.0, park=False,
+         glyphs="08XZ*%@#", band=None, mullion=False, ground="#", gap=4,
+         alley_lit=False,
+         pal="near", roof="=", whole_floors=False),
     dict(key="r", name="residential", weight=5, scale=0.45, lo=6.0, hi=14.0,
          dens=(0.34, 0.66), flat=0.0, hung=0.0, smoke=0.18, bulb=0.30,
-         neon=None, lantern=0.0, park=False),
+         neon=None, lantern=0.0, park=False,
+         glyphs="0oo.", band="-", mullion=False, ground="n", gap=3,
+         alley_lit=False,
+         pal="warm", roof="=", whole_floors=False),
     dict(key="o", name="old town", weight=4, scale=0.6, lo=7.0, hi=18.0,
          dens=(0.30, 0.62), flat=0.15, hung=0.20, smoke=0.30, bulb=0.40,
-         neon=(2, 5, 7), lantern=0.0, park=False),
+         neon=(2, 5, 7), lantern=0.0, park=False,
+         glyphs="+:8O", band=None, mullion=False, ground="n", gap=3,
+         alley_lit=False,
+         pal="mid", roof="^", whole_floors=False),
     dict(key="c", name="chinatown", weight=3, scale=0.7, lo=8.0, hi=22.0,
          dens=(0.38, 0.78), flat=0.80, hung=0.85, smoke=0.30, bulb=0.55,
-         neon=(3, 4, 7), lantern=0.85, park=False),
+         neon=(3, 4, 7), lantern=0.85, park=False,
+         glyphs="#8%@", band="=", mullion=False, ground="#", gap=5,
+         alley_lit=False,
+         pal="red", roof="=", whole_floors=False),
     dict(key="m", name="market", weight=3, scale=0.65, lo=7.0, hi=20.0,
          dens=(0.32, 0.68), flat=0.55, hung=0.45, smoke=0.35, bulb=0.60,
-         neon=(4, 7), lantern=0.70, park=False),
+         neon=(4, 7), lantern=0.70, park=False,
+         glyphs="oO0", band=None, mullion=False, ground="A", gap=2,
+         alley_lit=False,
+         pal="warm", roof="=", whole_floors=False),
     dict(key="f", name="financial", weight=3, scale=1.9, lo=26.0, hi=64.0,
          dens=(0.05, 0.16), flat=0.0, hung=0.0, smoke=0.08, bulb=0.15,
-         neon=None, lantern=0.0, park=False),
+         neon=None, lantern=0.0, park=False,
+         glyphs=":.:", band=None, mullion=False, ground=":", gap=6,
+         alley_lit=False,
+         pal="cold", roof="=", whole_floors=True),
     dict(key="k", name="docks", weight=2, scale=0.45, lo=5.0, hi=13.0,
          dens=(0.06, 0.20), flat=0.05, hung=0.05, smoke=0.25, bulb=0.55,
-         neon=(4,), lantern=0.0, park=False),
+         neon=(4,), lantern=0.0, park=False,
+         glyphs="==-", band="-", mullion=False, ground="#", gap=6,
+         alley_lit=False,
+         pal="rust", roof="-", whole_floors=False),
     dict(key="y", name="yokocho", weight=2, scale=0.55, lo=6.0, hi=16.0,
          dens=(0.30, 0.66), flat=0.70, hung=0.80, smoke=0.40, bulb=0.85,
-         neon=(0, 3, 4, 7), lantern=0.9, park=False),
+         neon=(0, 3, 4, 7), lantern=0.9, park=False,
+         glyphs="#88%", band=None, mullion=False, ground="~", gap=2,
+         alley_lit=True,
+         pal="red", roof="=", whole_floors=False),
     dict(key="p", name="park", weight=2, scale=0.5, lo=5.0, hi=10.0,
          dens=(0.20, 0.45), flat=0.0, hung=0.0, smoke=0.15, bulb=0.20,
-         neon=None, lantern=0.0, park=True),
+         neon=None, lantern=0.0, park=True,
+         glyphs="&%", band=None, mullion=False, ground="&", gap=3,
+         alley_lit=False,
+         pal="leaf", roof="=", whole_floors=False),
 ]
 
 DISTRICT_PICK = [n for n, d in enumerate(DISTRICTS) for _ in range(d["weight"])]
@@ -222,6 +260,10 @@ def init_colors():
             "far":  [24, 60, 23, 238, 59, 66],
             "dark": [235, 236, 237, 238, 239],      # what an alley is lit by
             "leaf": [22, 28, 29, 34, 65],           # a park, at night
+            "warm": [180, 179, 215, 137, 223],      # lamps behind curtains
+            "cold": [67, 68, 110, 74, 111],         # glass, and nobody home
+            "rust": [130, 166, 172, 94, 136],       # sodium light on steel
+            "red":  [160, 196, 202, 208, 203],      # lanterns and gold leaf
         }
         # (tube lit, tube dark) - the dark one is also what the sign spills
         # onto the wet road below it.
@@ -243,6 +285,10 @@ def init_colors():
             "far":  [curses.COLOR_BLUE, curses.COLOR_BLACK],
             "dark": [curses.COLOR_BLACK],
             "leaf": [curses.COLOR_GREEN],
+            "warm": [curses.COLOR_YELLOW],
+            "cold": [curses.COLOR_CYAN],
+            "rust": [curses.COLOR_RED],
+            "red": [curses.COLOR_RED],
         }
         neon = [(curses.COLOR_MAGENTA, curses.COLOR_MAGENTA),
                 (curses.COLOR_CYAN, curses.COLOR_CYAN),
@@ -819,9 +865,12 @@ def lot(i, j):
             "height": max(d["lo"], min(d["hi"],
                                        base * rng.uniform(0.7, 1.5) * d["scale"])),
             "tone": rng.random(),
-            "glyphs": rng.sample(WINDOW_GLYPHS, 2),
+            "glyphs": rng.sample(d["glyphs"], 2),
             "density": rng.uniform(*d["dens"]),
             "seed": rng.randrange(1 << 28),
+            # Shared by every cell of a block, so a thing can be decided for a
+            # whole building rather than for one five-metre slice of it.
+            "block": _mix(i // 3, j // 3, 97),
             "district": d,
             "tree": d["park"],
         }
@@ -999,18 +1048,24 @@ def wall_span(v, dist, height):
 
 
 def wall_colour(b, dist, lit, flash=0.0):
-    """Distance fog - and an alley face gets the dark palette at any range,
-    which is the whole reason an alley reads as somewhere you shouldn't go.
+    """What colour a lit window is.
 
-    Except for the half second a lightning flash lasts, when you can suddenly
-    see what is down there."""
+    Each part of town has its own palette, and that carries more of the
+    difference between them than anything drawn does: from the street, the
+    structure - corners, roofs, awnings, bands - is most of what is on screen
+    and windows are under a seventh of it, so a district told apart by its
+    window *glyphs* is barely told apart at all. Told apart by being amber
+    rather than cold blue, it is obvious at a glance.
+
+    An alley face still gets the dark palette at any range, which is the whole
+    reason an alley reads as somewhere you shouldn't go - except for the half
+    second a lightning flash lasts, when you can suddenly see what is down
+    there."""
     if not lit:
         return tone_colour("far" if flash > 0.35 else "dark", b["tone"])
-    if dist < 34.0:
-        return tone_colour("near", b["tone"])
-    if dist < 70.0:
-        return tone_colour("mid", b["tone"])
-    return tone_colour("far", b["tone"])
+    if dist > 70.0:
+        return tone_colour("far", b["tone"])       # everything fogs out alike
+    return tone_colour(b["district"]["pal"], b["tone"])
 
 
 def neon_attr(s, i, now):
@@ -1060,7 +1115,7 @@ def draw_club_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge, cont,
         for y in range(r_lo, r_hi + 1):
             ch[y][sx] = "|"
             co[y][sx] = trim
-        return roof, None, foot, None
+        return roof, None, foot, None, ()
 
     facade_line(ch, co, sx, roof, cont[0], r_lo, r_hi, "=", trim)
     facade_line(ch, co, sx, foot, cont[2], r_lo, r_hi, "_", CURB)
@@ -1086,7 +1141,7 @@ def draw_club_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge, cont,
         for y in range(max(r_lo, head), r_hi + 1):
             ch[y][sx] = "#" if lamp is not None else "]"
             co[y][sx] = lamp if lamp is not None else CONCRETE
-    return roof, None, foot, None
+    return roof, None, foot, None, ()
 
 
 def chase(u, now, period=0.8):
@@ -1119,9 +1174,9 @@ def draw_casino_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge,
         for y in range(r_lo, r_hi + 1):
             ch[y][sx] = "|"
             co[y][sx] = trim
-        return roof, None, foot, None
+        return roof, None, foot, None, ()
 
-    prev_roof, prev_awn, prev_foot, prev_k = cont
+    prev_roof, prev_awn, prev_foot, prev_k = cont[:4]
     awning = int(round(v.horizon - (FLOOR_H - EYE_Y) * scale))
     facade_line(ch, co, sx, roof, prev_roof, r_lo, r_hi, "=", trim)
     facade_line(ch, co, sx, awning, prev_awn, r_lo, r_hi, "-", trim)
@@ -1176,7 +1231,7 @@ def draw_casino_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge,
                 co[yy][sx] = attr
     # Last, so nothing paints over where the wall meets the ground.
     facade_line(ch, co, sx, foot, prev_foot, r_lo, r_hi, "_", CURB)
-    return roof, awning, foot, letter_k
+    return roof, awning, foot, letter_k, ()
 
 
 def draw_tree_column(ch, co, v, sx, dist, b, u, r_lo, r_hi):
@@ -1199,7 +1254,7 @@ def draw_tree_column(ch, co, v, sx, dist, b, u, r_lo, r_hi):
         if _mix(sx, y, 17) % 5 == 0:
             ch[y][sx] = "|"
             co[y][sx] = BARK
-    return crown, None, None, None
+    return crown, None, None, None, ()
 
 
 def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
@@ -1214,6 +1269,9 @@ def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
     if b["casino"] is not None:
         return draw_casino_column(ch, co, v, sx, dist, b, face, u,
                                   r_lo, r_hi, edge, cont, now)
+    d = b["district"]
+    if d["alley_lit"]:
+        lit = True              # a yokocho alley is the lit side, not the back
     scale = v.fy / dist
     trim = tone_colour("dark" if not lit else "far", b["tone"])
     if v.flash > 0.35:
@@ -1232,10 +1290,10 @@ def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
         for y in range(r_lo, r_hi + 1):
             ch[y][sx] = "|"
             co[y][sx] = trim
-        return roof, awning, foot, None
+        return roof, awning, foot, None, ()
 
-    prev_roof, prev_awn, prev_foot, prev_k = cont
-    facade_line(ch, co, sx, roof, prev_roof, r_lo, r_hi, "=", trim)
+    prev_roof, prev_awn, prev_foot, prev_k, prev_bands = cont
+    facade_line(ch, co, sx, roof, prev_roof, r_lo, r_hi, d["roof"], trim)
     if lit:                       # an alley has no shopfronts to put one over
         facade_line(ch, co, sx, awning, prev_awn, r_lo, r_hi, "-", trim)
 
@@ -1259,12 +1317,37 @@ def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
     colour = wall_colour(b, dist, lit, v.flash)
     thick = max(1, min(5, int(FLOOR_H * scale * 0.45)))   # windows have height
     density = b["density"] if lit else b["density"] * 0.35
+    storeys = int(b["height"] / FLOOR_H)
+
+    # A line at every storey: balconies in Chinatown and the housing, ribbing
+    # on a corrugated shed down at the docks. It needs the joining-up the roof
+    # gets, remembered per storey, or the wall comes out as a fan of dashes -
+    # which is what killed the first attempt at this months ago.
+    bands = ()
+    if d["band"]:
+        bands = tuple(int(round(v.horizon - (f * FLOOR_H - EYE_Y) * scale))
+                      for f in range(1, storeys))
+        for n, by in enumerate(bands):
+            if r_lo - 2 <= by <= r_hi + 2:
+                facade_line(ch, co, sx, by,
+                            prev_bands[n] if n < len(prev_bands) else None,
+                            r_lo, r_hi, d["band"], trim)
+
+    # A mullion at every bay, which is what a glass curtain wall looks like
+    # from the street and nothing else in this city does. One column wide at
+    # any distance, the same way a sign letter is.
+    if d["mullion"] and frac * bay_cols < 1.0:
+        for y in range(r_lo, r_hi + 1):
+            ch[y][sx] = "|"
+            co[y][sx] = trim
+        facade_line(ch, co, sx, foot, prev_foot, r_lo, r_hi, "_", CURB)
+        return roof, awning, foot, None, bands
 
     # A fire escape zigzags down the back of an alley building, one landing per
     # storey, and is the only thing up there catching any light.
     escape = (not lit) and fc["escape"] and 0.45 < frac < 0.8
 
-    for f in range(int(b["height"] / FLOOR_H)):
+    for f in range(storeys):
         y = int(round(v.horizon - ((f + 0.55) * FLOOR_H - EYE_Y) * scale))
         if y > r_hi or y + thick < r_lo:
             continue
@@ -1274,12 +1357,22 @@ def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
             glyph, attr = sign["text"][letter_k], neon_attr(sign, letter_k, now)
         elif escape and f:
             glyph, attr = "=", trim
-        elif not lit_bay:
+        elif not (lit_bay or d["whole_floors"]):
             continue
         elif f == 0:
-            if _mix(b["seed"], face, bay) & 3 == 0:
+            if _mix(b["seed"], face, bay) % d["gap"] == 0:
                 continue                      # a doorway between the shopfronts
-            glyph, attr = "#", colour
+            glyph, attr = d["ground"], colour
+        elif d["whole_floors"]:
+            # A glass tower is not lit window by window: it is dark, and then
+            # somewhere up it one whole floor is on because the cleaners are
+            # there. A solid bright line across a black slab, which nothing
+            # else in the city looks remotely like.
+            # Keyed on the block, not the cell, or the lit floor is five
+            # metres of one and stops reading as a floor of a tower.
+            if _mix(b["block"], f, 3) % 11:
+                continue
+            glyph, attr = d["glyphs"][0], colour
         else:
             m = _mix(b["seed"] + face, f, bay)
             if (m & 0xFFFF) / 65535.0 >= density:
@@ -1291,7 +1384,7 @@ def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
                 ch[yy][sx] = glyph
                 co[yy][sx] = attr
     facade_line(ch, co, sx, foot, prev_foot, r_lo, r_hi, "_", CURB)
-    return roof, awning, foot, letter_k
+    return roof, awning, foot, letter_k, bands
 
 
 def draw_walls(ch, co, v, now):
@@ -1330,12 +1423,13 @@ def draw_walls(ch, co, v, now):
                            else ((i - 1, j, f), (i + 1, j, f))):
                     w = seen.get(nk)
                     if w is not None and w[0] == sx - 1:
-                        cont = (w[1][0], w[1][1], w[1][2], None)
+                        cont = (w[1][0], w[1][1], w[1][2], None, w[1][4])
                         break
             nx, nz = FACES[f]
             seen[key] = (sx, draw_wall_column(
                 ch, co, v, sx, dist, b, f, u, r_lo, r_hi,
-                cont is None and sx > 0, cont or (None, None, None, None),
+                cont is None and sx > 0,
+                cont or (None, None, None, None, ()),
                 road_at(i + nx, j + nz), now))
             cover = r_lo if cover is None else min(cover, r_lo)
             if not n:

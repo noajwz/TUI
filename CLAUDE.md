@@ -216,12 +216,34 @@ with lanterns — comes from that row, so a district is one line of data rather 
 scattered through the generator. `scale` multiplies the block's own base height and `lo`/`hi` clamp
 it, which keeps a block's internal coherence inside a district's range.
 
-The nine: **downtown** (the tall neon one, still the commonest), **residential** (low, no signs at
-all), **old town**, **chinatown** and **market** (lantern-strung, and restricted to warm tubes —
-`neon` is a tuple of allowed indices, which is what makes Chinatown red and gold while downtown is
-every colour at once), **financial** (the anti-downtown: enormous, uniform, and 5–16% lit because
-nobody is in an office at 3am), **docks** (low, dark, barely any windows), **yokocho** (the alleys
-are the point — lanterns and signs down a back lane instead of a bare bulb), and **park**.
+The nine: **downtown** (the tall neon one, still the commonest), **residential** (low, banded with
+balconies, no signs at all), **old town** (pitched roofs), **chinatown** and **market**
+(lantern-strung, and restricted to warm tubes), **financial** (enormous, cold, and dark but for the
+occasional whole floor left on), **docks** (low corrugated sheds, roller doors), **yokocho** (the
+alleys are the point — signs and warm light down a back lane where everywhere else has a bare bulb
+and the dark palette), and **park**.
+
+**Height and window density are nearly useless as district markers, and finding that out took a
+measurement.** From the street you see four storeys of frontage and hardly any roofline, and the
+facade is 60–80% structure — corners, roofs, awnings, bands — with lit windows under a seventh of
+it. So the things that actually separate a district are, in order:
+
+1. **Its palette.** `wall_colour()` picks the family named by the district, and this carries more
+   than everything else combined. Amber housing against cold blue glass against rust-lit sheds is
+   obvious at a glance in a way that a different window *glyph* never is.
+2. **Its structure** — `band` draws a line at every storey (balconies in Chinatown, ribbing on a
+   corrugated shed), `roof` varies the roofline, `ground` and `gap` decide what the shopfronts are
+   made of, and `whole_floors` is the financial district's alone: a glass tower is not lit window by
+   window, it is black with one floor on because the cleaners are there. That one is keyed on
+   `b["block"]` rather than the cell, or the lit floor is five metres wide and stops reading as a
+   floor at all.
+3. **Its props** — lanterns, and `alley_lit`.
+
+There is a test for exactly the thing that was reported, and it is worth keeping honest: a histogram
+of what gets drawn on the facade, compared pairwise between districts. Measured on **glyphs alone**
+the worst pair scored 0.08 — indistinguishable, matching the report. With the colour of each cell
+included and the palettes in, the worst pair is 0.43 and the median 0.69. Count only the rows above
+the horizon, or road, footings and rain — identical everywhere — swamp the comparison.
 
 The grid of districts is offset a different amount on each row so the boundaries stagger like
 brickwork rather than lining up into one seam across the city. Note that a district is 180 units
