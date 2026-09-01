@@ -220,6 +220,10 @@ CJK_SIGNS = ["酒吧", "麵館", "茶樓", "飯店", "火鍋", "點心",
 JP_SIGNS = ["居酒屋", "焼鳥", "寿司", "おでん", "屋台", "立呑",
             "焼肉", "串カツ", "もつ煮", "一杯", "酒処", "麺"]
 
+# Short enough to go over a door rather than down a bracket.
+JP_OVER_DOOR = ["居酒屋", "焼鳥", "一杯", "酒",
+                "串", "呑", "おでん", "肉"]
+
 # Set once at startup by asking the terminal rather than assuming - a
 # double-width character on a terminal that cannot place one wrecks the
 # alignment of the whole row.
@@ -909,6 +913,10 @@ def make_face(rng, height, d, kind):
                          "phase": rng.uniform(0.0, 6.2)}
                         if rng.random() < (0.9 if yoko else d["lantern"])
                         else None)
+    # A place on a lit lane small enough that you can see the whole of it
+    # through the window: a counter, and whoever is sitting at it.
+    face["pub"] = (yoko and rng.random() < 0.55)
+    face["over"] = rng.choice(JP_OVER_DOOR)
     face["escape"] = rng.random() < 0.4
     face["bin"] = rng.uniform(1.2, CELL - 1.2) if rng.random() < 0.3 else None
     return face
@@ -1497,6 +1505,30 @@ def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
             if r_lo <= yy <= r_hi:
                 ch[yy][sx] = glyph
                 co[yy][sx] = attr
+    # Through the window of a place on a lit lane: the counter, and the backs
+    # of the people at it. Drawn after the storeys so it wins the ground floor,
+    # which would otherwise be a shopfront like anywhere else.
+    if lit == "yokocho" and fc["pub"]:
+        # Stacked in rows off the counter rather than placed at true heights.
+        # Half a metre between someone's shoulders and their head is a dozen
+        # rows when you are stood right outside, and they come apart into
+        # unrelated marks - the same reason the hung signs count rows.
+        warm = tone_colour("warm", b["tone"])
+        base = int(round(v.horizon - (1.05 - EYE_Y) * scale))
+        if r_lo <= base <= r_hi:
+            ch[base][sx] = "="
+            co[base][sx] = trim
+        # One column a person, however close you are, or a slot wider than a
+        # cell smears them into a row of Ms - the same trick the sign letters
+        # use to stop a word stuttering.
+        slot = u / 0.8
+        seat_cols = 0.8 * v.fx / dist
+        if int(slot) % 2 == 0 and (slot - int(slot)) * max(1.0, seat_cols) < 1.0:
+            for dy, glyph in ((1, "M"), (2, "o")):
+                if r_lo <= base - dy <= r_hi:
+                    ch[base - dy][sx] = glyph
+                    co[base - dy][sx] = warm
+
     facade_line(ch, co, sx, foot, prev_foot, r_lo, r_hi, "_", CURB)
     return roof, awning, foot, letter_k, bands
 
@@ -2086,6 +2118,61 @@ def draw_hung_sign(ch, co, v, walls, s, world, normal, now, wet):
                 put_cell(ch, co, v, walls, sx, int(round(ry)), dist, ":", attr)
 
 
+def draw_lantern_string(ch, co, v, walls, i, j, now):
+    """A string of lanterns slung across the lane, wall to wall.
+
+    Hanging them off one facade is what a shopfront does; a yokocho strings
+    them over your head from one side to the other, and that one difference is
+    most of what makes the lane feel like somewhere rather than a gap between
+    two buildings. The wire sags in the middle and drifts, because a dead
+    straight line of dots reads as a fence."""
+    m = _mix(i, j, 401)
+    if m % 2:
+        return                      # not across every cell, or it is a ceiling
+    across_x = _is_alley(i, j, XP, 91, 211)
+    lit, dark = NEON[min(len(NEON) - 1, int(((m >> 4) % 8 + 0.5) / 8.0 * len(NEON)))]
+    top = 4.6 + (m & 7) * 0.1
+    at = ((j if across_x else i) + 0.25 + ((m >> 8) & 7) / 11.0) * CELL
+    steps = 10
+    for k in range(steps + 1):
+        t = k / float(steps)
+        run = ((i if across_x else j) + t) * CELL
+        y = top - 0.55 * math.sin(math.pi * t) + 0.07 * math.sin(now * 0.9 + k)
+        x, z = (run, at) if across_x else (at, run)
+        if k % 3 == 1:
+            put_lit(ch, co, v, walls, x, y - 0.3, z, "o", lit, v.wet, now)
+        else:
+            put_point(ch, co, v, walls, x, y, z, "-", dark)
+
+
+def draw_over_door(ch, co, v, walls, text, world, now, tone):
+    """A small neon over a pub door, horizontal, in screen space so the
+    characters sit side by side - each one is two columns wide, so they step
+    two at a time."""
+    pr = v.project(world[0], world[1], world[2])
+    if pr is None:
+        return
+    sx, sy, dist = int(round(pr[0])), int(round(pr[1])), pr[2]
+    lit = NEON[min(len(NEON) - 1, int(tone * len(NEON)))][0]
+    for k, c in enumerate(text):
+        put_wide(ch, co, v, walls, sx - len(text) + k * 2, sy, dist, c, lit)
+
+
+def near_yokocho(v, reach):
+    """Open cells of a lit lane in front of you."""
+    n = int(reach / CELL) + 1
+    ci = int(v.x / CELL + BIG) - BIG
+    cj = int(v.z / CELL + BIG) - BIG
+    for i in range(ci - n, ci + n + 1):
+        for j in range(cj - n, cj + n + 1):
+            rx = (i + 0.5) * CELL - v.x
+            rz = (j + 0.5) * CELL - v.z
+            if rx * v.dx + rz * v.dz < -CELL:
+                continue
+            if yokocho_at(i, j):
+                yield i, j
+
+
 def near_lots(v, reach):
     """Solid cells within reach that are not behind you."""
     n = int(reach / CELL) + 1
@@ -2141,6 +2228,10 @@ def draw_props(ch, co, v, walls, now, wet):
                 props.append((_d2(v, w), "lanterns", (fc["lanterns"], i, j, f),
                               w, (nx, nz)))
             lit = face_kind(i + nx, j + nz)
+            if lit == "yokocho" and fc["pub"]:
+                w = face_point(i, j, f, CELL * 0.5, 0.5, 3.4)
+                props.append((_d2(v, w), "overdoor",
+                              (fc["over"], fc["lanterns"]), w, (nx, nz)))
             if lit:
                 if fc["hung"] is not None:
                     s = fc["hung"]
@@ -2161,7 +2252,10 @@ def draw_props(ch, co, v, walls, now, wet):
     props.sort(key=lambda p: -p[0])
 
     for _, kind, s, world, normal in props:
-        if kind == "lanterns":
+        if kind == "overdoor":
+            tone = s[1]["tone"] if s[1] else 0.44
+            draw_over_door(ch, co, v, walls, s[0], world, now, tone)
+        elif kind == "lanterns":
             draw_lanterns(ch, co, v, walls, s[0], s[1], s[2], s[3], now, wet)
         elif kind == "marquee":
             draw_marquee(ch, co, v, walls, s, world, now)
@@ -2418,6 +2512,8 @@ def render_street(v, now):
     draw_ground(ch, co, v, walls, collect_glow(v, now, wet), wet, now)
     draw_flash(ch, co, v, walls, v.flash)
     draw_props(ch, co, v, walls, now, wet)
+    for i, j in near_yokocho(v, 55.0):
+        draw_lantern_string(ch, co, v, walls, i, j, now)
     draw_rain(ch, co, v, walls, now, wet)
     return ch, co, wet
 
