@@ -162,7 +162,7 @@ DISTRICTS = [
          neon=(3, 4, 7), lantern=0.85, park=False,
          glyphs="#8%@", band="=", mullion=False, ground="#", gap=5,
          alley_lit=False,
-         pal="red", roof="=", whole_floors=False),
+         pal="red", roof="~", whole_floors=False),
     dict(key="m", name="market", weight=3, scale=0.65, lo=7.0, hi=20.0,
          dens=(0.32, 0.68), flat=0.55, hung=0.45, smoke=0.35, bulb=0.60,
          neon=(4, 7), lantern=0.70, park=False,
@@ -180,7 +180,7 @@ DISTRICTS = [
          neon=(4,), lantern=0.0, park=False,
          glyphs="==-", band="-", mullion=False, ground="#", gap=6,
          alley_lit=False,
-         pal="rust", roof="-", whole_floors=False),
+         pal="rust", roof="=", whole_floors=False),
     dict(key="y", name="yokocho", weight=2, scale=0.55, lo=6.0, hi=16.0,
          dens=(0.30, 0.66), flat=0.70, hung=0.80, smoke=0.40, bulb=0.85,
          neon=(0, 3, 4, 7), lantern=0.9, park=False,
@@ -237,13 +237,14 @@ NEON = []          # [(lit, unlit), ...] - one entry per neon tube colour
 STAR = STREET = HUD = CURB = HAZE = SMOKE = EMBER = EMBER_HOT = 0
 RAIN = RAIN_FAR = BULB = BULB_DIM = FLASH = CONCRETE = 0
 GOLD = GOLD_DIM = ROU_RED = ROU_BLACK = ROU_GREEN = LANE = 0
-GRASS = BARK = 0
+GRASS = BARK = ROOF = 0
 
 
 def init_colors():
     global PALETTES, NEON, STAR, STREET, HUD, CURB, HAZE, SMOKE, EMBER
     global EMBER_HOT, RAIN, RAIN_FAR, BULB, BULB_DIM, FLASH, CONCRETE
     global GOLD, GOLD_DIM, ROU_RED, ROU_BLACK, ROU_GREEN, LANE, GRASS, BARK
+    global ROOF
 
     curses.start_color()
     try:
@@ -274,7 +275,8 @@ def init_colors():
                   "rain": 110, "rain_far": 60, "bulb": 222, "bulb_dim": 58,
                   "flash": 231, "concrete": 234, "gold": 220,
                   "gold_dim": 136, "rou_red": 196, "rou_black": 252,
-                  "rou_green": 46, "lane": 250, "grass": 22, "bark": 58}
+                  "rou_green": 46, "lane": 250, "grass": 22, "bark": 58,
+                  "roof": 252}
         attrs = {}
     else:
         # 8-colour fallback: bold = the "bright" version of a colour.
@@ -305,7 +307,8 @@ def init_colors():
                   "rou_red": curses.COLOR_RED, "rou_black": curses.COLOR_WHITE,
                   "rou_green": curses.COLOR_GREEN,
                   "lane": curses.COLOR_WHITE, "grass": curses.COLOR_GREEN,
-                  "bark": curses.COLOR_BLACK}
+                  "bark": curses.COLOR_BLACK,
+                  "roof": curses.COLOR_WHITE}
         attrs = {"near": curses.A_BOLD}
 
     pair = 1
@@ -355,6 +358,7 @@ def init_colors():
     LANE = made["lane"]
     GRASS = made["grass"]
     BARK = made["bark"]
+    ROOF = made["roof"] | curses.A_BOLD
 
 
 def tone_colour(name, tone):
@@ -1047,6 +1051,30 @@ def wall_span(v, dist, height):
             int(math.ceil(v.horizon + EYE_Y * scale)))
 
 
+def roof_colour(b, dist, flash=0.0):
+    """A roofline is the edge of the building against the sky, and it was
+    getting the same near-black trim as every other horizontal line on the
+    facade - the awning, and the balconies at every storey. On a tall building
+    that hardly matters because the roof is off the top of the screen; on a low
+    one it is the only thing telling you where the building stops, and it was
+    losing to its own balconies.
+
+    So a near roofline gets a colour of its own, brighter than anything else
+    on the building - not the kerb's, which is already doing the pavement and
+    the footing and would have the top of a building drawn the same as the
+    ground. Far ones still fog out, or every roofline in the city would read as
+    equally close."""
+    if flash > 0.35:
+        return FLASH
+    if dist < 60.0:
+        return ROOF
+    # And it fades in one step rather than dropping straight into the fog. The
+    # rooflines you can actually see are the middle-distance ones - a near
+    # building's roof is off the top of the screen - so fogging at the first
+    # opportunity hides exactly the ones this was meant to fix.
+    return CURB if dist < 115.0 else tone_colour("far", b["tone"])
+
+
 def wall_colour(b, dist, lit, flash=0.0):
     """What colour a lit window is.
 
@@ -1117,7 +1145,8 @@ def draw_club_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge, cont,
             co[y][sx] = trim
         return roof, None, foot, None, ()
 
-    facade_line(ch, co, sx, roof, cont[0], r_lo, r_hi, "=", trim)
+    facade_line(ch, co, sx, roof, cont[0], r_lo, r_hi, "=",
+                roof_colour(b, dist, v.flash))
     facade_line(ch, co, sx, foot, cont[2], r_lo, r_hi, "_", CURB)
 
     # Bare concrete. Speckled rather than filled, so it reads as a mass with
@@ -1178,7 +1207,8 @@ def draw_casino_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge,
 
     prev_roof, prev_awn, prev_foot, prev_k = cont[:4]
     awning = int(round(v.horizon - (FLOOR_H - EYE_Y) * scale))
-    facade_line(ch, co, sx, roof, prev_roof, r_lo, r_hi, "=", trim)
+    facade_line(ch, co, sx, roof, prev_roof, r_lo, r_hi, "=",
+                roof_colour(b, dist, v.flash))
     facade_line(ch, co, sx, awning, prev_awn, r_lo, r_hi, "-", trim)
 
     # Bulbs along the roof and along the canopy over the door.
@@ -1293,7 +1323,8 @@ def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
         return roof, awning, foot, None, ()
 
     prev_roof, prev_awn, prev_foot, prev_k, prev_bands = cont
-    facade_line(ch, co, sx, roof, prev_roof, r_lo, r_hi, d["roof"], trim)
+    facade_line(ch, co, sx, roof, prev_roof, r_lo, r_hi, d["roof"],
+                roof_colour(b, dist, v.flash))
     if lit:                       # an alley has no shopfronts to put one over
         facade_line(ch, co, sx, awning, prev_awn, r_lo, r_hi, "-", trim)
 

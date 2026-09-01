@@ -178,6 +178,13 @@ there is no fisheye to correct at the edges.
 - A horizontal line on a facade is a **slope on screen**, so roofs, awnings and footings go through
   `facade_line()`, which fills from the previous column's row to this one's. One cell per column
   instead and the line breaks into dashes.
+- **The roofline gets its own colour**, brighter than anything else on the building, through
+  `roof_colour()`. It used to take the same near-black trim as the awning and the balcony banding
+  below it, which on a *low* building — the only kind whose roof is on screen at all, since a tall
+  one's is off the top — meant the top edge lost to its own balconies. It fades in one step rather
+  than dropping straight into the fog, because the rooflines you can actually see are the
+  middle-distance ones. And no district's roof glyph may be the same mark as its own banding, which
+  is asserted: Chinatown's `~` upturned eave exists because its balconies were already `=`.
 - **Three lines make a building read as a building**: the roof, the awning over the shopfronts, and
   the footing where the wall meets the ground. The footing is the one that does the most work and
   was the last to arrive — with enough neon and lit windows in frame the eye stops being able to
