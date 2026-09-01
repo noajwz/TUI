@@ -208,6 +208,35 @@ there is no fisheye to correct at the edges.
   There is a ceiling too — hang it anywhere in the building's height and every sign on a tall block
   ends up in the sky where nobody in the street is looking.
 
+### Parts of town
+
+`DISTRICTS` is a table and `district_at()` picks a row from it. Everything a building is — how tall,
+how lit, whether it carries neon and in which of the eight tubes, whether its frontage is strung
+with lanterns — comes from that row, so a district is one line of data rather than special cases
+scattered through the generator. `scale` multiplies the block's own base height and `lo`/`hi` clamp
+it, which keeps a block's internal coherence inside a district's range.
+
+The nine: **downtown** (the tall neon one, still the commonest), **residential** (low, no signs at
+all), **old town**, **chinatown** and **market** (lantern-strung, and restricted to warm tubes —
+`neon` is a tuple of allowed indices, which is what makes Chinatown red and gold while downtown is
+every colour at once), **financial** (the anti-downtown: enormous, uniform, and 5–16% lit because
+nobody is in an office at 3am), **docks** (low, dark, barely any windows), **yokocho** (the alleys
+are the point — lanterns and signs down a back lane instead of a bare bulb), and **park**.
+
+The grid of districts is offset a different amount on each row so the boundaries stagger like
+brickwork rather than lining up into one seam across the city. Note that a district is 180 units
+across and you can see 130, so from the middle of the financial district you will still catch the
+neon of whatever is next door down a long street — which is correct, and worth not mistaking for a
+bug.
+
+**The park is the one that changes the world model**, not just its parameters: `is_open()` returns
+true for park cells, so it is ground you walk on, except for the quarter of them that are a clump of
+trees. Making a clump *solid* is what makes it free — the raycaster and the collision already know
+what a solid cell is, and `draw_tree_column()` just draws it with no roof line, no corner and no
+footing, its canopy height wandering along the clump so the top comes out ragged. Clubs and casinos
+are barred from parks: the cell would be a clump of trees and would be drawn as one, so the venue
+would exist and be invisible.
+
 ### Getting lost is the feature
 
 The layout is deliberately irregular, because the point is to be able to lose yourself in it.

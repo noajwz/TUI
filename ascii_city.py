@@ -110,6 +110,77 @@ CASINO_NAMES = ["ROYALE", "GOLDEN", "LUCKY", "ACES", "MIRAGE", "JACKPOT",
 
 WINDOW_GLYPHS = "08XZ:+=*%@o.#"
 
+# ---------------------------------------------------------------------------
+# Districts
+#
+# Which part of town a cell is in. Everything a building is - how tall, how
+# lit, whether it carries neon and in what colour, what its alleys are like -
+# comes from here, so a district is one row of table rather than special cases
+# scattered through the generator.
+#
+# scale multiplies the block's own base height; hi/lo then clamp it, so a block
+# still has a coherent skyline of its own inside a district's range.
+# neon is which of the eight tubes the district's signs may use, by index, or
+# None for any of them - that is what makes Chinatown red and gold and downtown
+# every colour at once.
+# ---------------------------------------------------------------------------
+
+DISTRICT_CELLS = 36        # about 180 world units square, a few blocks
+
+DISTRICTS = [
+    dict(key="d", name="downtown", weight=7, scale=1.5, lo=12.0, hi=58.0,
+         dens=(0.26, 0.70), flat=0.45, hung=0.45, smoke=0.30, bulb=0.45,
+         neon=None, lantern=0.0, park=False),
+    dict(key="r", name="residential", weight=5, scale=0.45, lo=6.0, hi=14.0,
+         dens=(0.34, 0.66), flat=0.0, hung=0.0, smoke=0.18, bulb=0.30,
+         neon=None, lantern=0.0, park=False),
+    dict(key="o", name="old town", weight=4, scale=0.6, lo=7.0, hi=18.0,
+         dens=(0.30, 0.62), flat=0.15, hung=0.20, smoke=0.30, bulb=0.40,
+         neon=(2, 5, 7), lantern=0.0, park=False),
+    dict(key="c", name="chinatown", weight=3, scale=0.7, lo=8.0, hi=22.0,
+         dens=(0.38, 0.78), flat=0.80, hung=0.85, smoke=0.30, bulb=0.55,
+         neon=(3, 4, 7), lantern=0.85, park=False),
+    dict(key="m", name="market", weight=3, scale=0.65, lo=7.0, hi=20.0,
+         dens=(0.32, 0.68), flat=0.55, hung=0.45, smoke=0.35, bulb=0.60,
+         neon=(4, 7), lantern=0.70, park=False),
+    dict(key="f", name="financial", weight=3, scale=1.9, lo=26.0, hi=64.0,
+         dens=(0.05, 0.16), flat=0.0, hung=0.0, smoke=0.08, bulb=0.15,
+         neon=None, lantern=0.0, park=False),
+    dict(key="k", name="docks", weight=2, scale=0.45, lo=5.0, hi=13.0,
+         dens=(0.06, 0.20), flat=0.05, hung=0.05, smoke=0.25, bulb=0.55,
+         neon=(4,), lantern=0.0, park=False),
+    dict(key="y", name="yokocho", weight=2, scale=0.55, lo=6.0, hi=16.0,
+         dens=(0.30, 0.66), flat=0.70, hung=0.80, smoke=0.40, bulb=0.85,
+         neon=(0, 3, 4, 7), lantern=0.9, park=False),
+    dict(key="p", name="park", weight=2, scale=0.5, lo=5.0, hi=10.0,
+         dens=(0.20, 0.45), flat=0.0, hung=0.0, smoke=0.15, bulb=0.20,
+         neon=None, lantern=0.0, park=True),
+]
+
+DISTRICT_PICK = [n for n, d in enumerate(DISTRICTS) for _ in range(d["weight"])]
+_district_cache = {}
+
+
+def district_at(i, j):
+    """Which part of town, as an index into DISTRICTS.
+
+    The grid of districts is offset a different amount on every row, so the
+    boundaries stagger like brickwork instead of lining up into one long seam
+    across the whole city."""
+    key = i * 1048576 + j
+    hit = _district_cache.get(key)
+    if hit is None:
+        _evict(_district_cache, 40000)
+        dj = j // DISTRICT_CELLS
+        di = (i + _mix(dj, 0, 71) % DISTRICT_CELLS) // DISTRICT_CELLS
+        hit = DISTRICT_PICK[_mix(di, dj, 313) % len(DISTRICT_PICK)]
+        _district_cache[key] = hit
+    return hit
+
+
+def district(i, j):
+    return DISTRICTS[district_at(i, j)]
+
 SIGN_WORDS = [
     "BAR", "OPEN", "HOTEL", "MOTEL", "PHO", "RAMEN", "SUSHI", "COFFEE",
     "24H", "LIVE", "JAZZ", "TATTOO", "PAWN", "DINER", "LAUNDRY", "EAT",
@@ -128,12 +199,13 @@ NEON = []          # [(lit, unlit), ...] - one entry per neon tube colour
 STAR = STREET = HUD = CURB = HAZE = SMOKE = EMBER = EMBER_HOT = 0
 RAIN = RAIN_FAR = BULB = BULB_DIM = FLASH = CONCRETE = 0
 GOLD = GOLD_DIM = ROU_RED = ROU_BLACK = ROU_GREEN = LANE = 0
+GRASS = BARK = 0
 
 
 def init_colors():
     global PALETTES, NEON, STAR, STREET, HUD, CURB, HAZE, SMOKE, EMBER
     global EMBER_HOT, RAIN, RAIN_FAR, BULB, BULB_DIM, FLASH, CONCRETE
-    global GOLD, GOLD_DIM, ROU_RED, ROU_BLACK, ROU_GREEN, LANE
+    global GOLD, GOLD_DIM, ROU_RED, ROU_BLACK, ROU_GREEN, LANE, GRASS, BARK
 
     curses.start_color()
     try:
@@ -149,6 +221,7 @@ def init_colors():
             "mid":  [31, 130, 100, 65, 96, 67, 137, 72],
             "far":  [24, 60, 23, 238, 59, 66],
             "dark": [235, 236, 237, 238, 239],      # what an alley is lit by
+            "leaf": [22, 28, 29, 34, 65],           # a park, at night
         }
         # (tube lit, tube dark) - the dark one is also what the sign spills
         # onto the wet road below it.
@@ -159,7 +232,7 @@ def init_colors():
                   "rain": 110, "rain_far": 60, "bulb": 222, "bulb_dim": 58,
                   "flash": 231, "concrete": 234, "gold": 220,
                   "gold_dim": 136, "rou_red": 196, "rou_black": 252,
-                  "rou_green": 46, "lane": 250}
+                  "rou_green": 46, "lane": 250, "grass": 22, "bark": 58}
         attrs = {}
     else:
         # 8-colour fallback: bold = the "bright" version of a colour.
@@ -169,6 +242,7 @@ def init_colors():
             "mid":  [curses.COLOR_CYAN, curses.COLOR_BLUE, curses.COLOR_GREEN],
             "far":  [curses.COLOR_BLUE, curses.COLOR_BLACK],
             "dark": [curses.COLOR_BLACK],
+            "leaf": [curses.COLOR_GREEN],
         }
         neon = [(curses.COLOR_MAGENTA, curses.COLOR_MAGENTA),
                 (curses.COLOR_CYAN, curses.COLOR_CYAN),
@@ -184,7 +258,8 @@ def init_colors():
                   "gold": curses.COLOR_YELLOW, "gold_dim": curses.COLOR_YELLOW,
                   "rou_red": curses.COLOR_RED, "rou_black": curses.COLOR_WHITE,
                   "rou_green": curses.COLOR_GREEN,
-                  "lane": curses.COLOR_WHITE}
+                  "lane": curses.COLOR_WHITE, "grass": curses.COLOR_GREEN,
+                  "bark": curses.COLOR_BLACK}
         attrs = {"near": curses.A_BOLD}
 
     pair = 1
@@ -232,6 +307,8 @@ def init_colors():
     ROU_BLACK = made["rou_black"] | curses.A_BOLD
     ROU_GREEN = made["rou_green"] | curses.A_BOLD
     LANE = made["lane"]
+    GRASS = made["grass"]
+    BARK = made["bark"]
 
 
 def tone_colour(name, tone):
@@ -593,9 +670,15 @@ def is_open(i, j):
     hit = _open_cache.get(key)
     if hit is None:
         _evict(_open_cache, 60000)
-        hit = (road_at(i, j)
-               or _is_alley(i, j, XP, 91, 211) or _is_alley(j, i, ZP, 137, 223)
-               or _mix(i, j, 57) % 47 == 0)
+        if DISTRICTS[district_at(i, j)]["park"]:
+            # Roads still cross a park; everything else is grass, but for the
+            # quarter of it that is a clump of trees - which is solid, so the
+            # renderer and the collision both already know what to do with it.
+            hit = road_at(i, j) or _mix(i, j, 83) % 4 != 0
+        else:
+            hit = (road_at(i, j)
+                   or _is_alley(i, j, XP, 91, 211) or _is_alley(j, i, ZP, 137, 223)
+                   or _mix(i, j, 57) % 47 == 0)
         _open_cache[key] = hit
     return hit
 
@@ -627,19 +710,27 @@ FACES = ((-1, 0), (1, 0), (0, -1), (0, 1))     # outward normal of face 0..3
 _lots = {}
 
 
-def make_face(rng, height):
+def _tube(rng, d):
+    """A neon colour this district is willing to use, stored as the same 0..1
+    tone every sign already carries so nothing downstream has to change."""
+    picks = d["neon"]
+    idx = rng.randrange(8) if picks is None else rng.choice(picks)
+    return (idx + 0.5) / 8.0
+
+
+def make_face(rng, height, d):
     floors = max(1, int(height / FLOOR_H))
     face = {"flat": None, "hung": None, "smoker": None,
             "bulb": None, "escape": False}
 
-    if floors >= 3 and rng.random() < 0.45:
+    if floors >= 3 and rng.random() < d["flat"]:
         text = rng.choice(SIGN_WORDS)
         flicker = rng.random() < 0.25
         face["flat"] = {
             "text": text,
             "floor": rng.randrange(1, min(floors, 6)),
             "step": CELL / (len(text) + 1.0),
-            "tone": rng.random(),
+            "tone": _tube(rng, d),
             "flicker": flicker,
             "dead": frozenset(rng.sample(range(len(text)), rng.randint(0, 1)))
             if flicker else frozenset(),
@@ -649,11 +740,11 @@ def make_face(rng, height):
 
     # Every value is drawn whether or not the sign ends up existing, so that
     # deciding it will not fit cannot shift what the rest of the building rolls.
-    want = rng.random() < 0.45
+    want = rng.random() < d["hung"]
     text = rng.choice(SIGN_WORDS)
     flicker = rng.random() < 0.3
     u = rng.uniform(1.2, CELL - 1.2)
-    tone = rng.random()
+    tone = _tube(rng, d)
     dead = (frozenset(rng.sample(range(len(text)), rng.randint(0, 1)))
             if flicker else frozenset())
     period = rng.uniform(1.7, 5.0)
@@ -675,16 +766,22 @@ def make_face(rng, height):
                         "tone": tone, "flicker": flicker, "dead": dead,
                         "period": period, "phase": phase}
 
-    if rng.random() < 0.30:
+    if rng.random() < d["smoke"]:
         face["smoker"] = {"u": rng.uniform(1.2, CELL - 1.2), "out": 1.05,
                           "phase": rng.uniform(0.0, SMOKE_CYCLE)}
 
     # For the alley side of the same building.
-    if rng.random() < 0.45:
+    if rng.random() < d["bulb"]:
         face["bulb"] = {"u": rng.uniform(1.0, CELL - 1.0), "out": 0.45,
                         "y": rng.uniform(2.6, 3.4),
                         "phase": rng.uniform(0.0, 9.0),
                         "dying": rng.random() < 0.3}
+    # Strung along the frontage: Chinatown and the market over the street,
+    # yokocho over the alley, which is most of what tells them apart from a
+    # dark back lane at a glance.
+    face["lanterns"] = ({"y": rng.uniform(4.3, 5.6), "tone": _tube(rng, d),
+                         "phase": rng.uniform(0.0, 6.2)}
+                        if rng.random() < d["lantern"] else None)
     face["escape"] = rng.random() < 0.4
     face["bin"] = rng.uniform(1.2, CELL - 1.2) if rng.random() < 0.3 else None
     return face
@@ -716,19 +813,28 @@ def lot(i, j):
     if b is None:
         _evict(_lots, 6000)
         rng = random.Random(f"lot|{i}|{j}")
+        d = district(i, j)
         base = 11.0 + _mix(i // XP, j // ZP, 43) % 26      # the block's own scale
         b = {
-            "height": max(6.0, base * rng.uniform(0.7, 1.5)),
+            "height": max(d["lo"], min(d["hi"],
+                                       base * rng.uniform(0.7, 1.5) * d["scale"])),
             "tone": rng.random(),
             "glyphs": rng.sample(WINDOW_GLYPHS, 2),
-            "density": rng.uniform(0.26, 0.70),
+            "density": rng.uniform(*d["dens"]),
             "seed": rng.randrange(1 << 28),
+            "district": d,
+            "tree": d["park"],
         }
-        b["faces"] = [make_face(rng, b["height"]) for _ in range(4)]
+        b["faces"] = [make_face(rng, b["height"], d) for _ in range(4)]
         # Every so often the slab is not offices at all. Drawn last so that
         # deciding it changes nothing about the building it was going to be.
+        # Neither belongs in a park: the cell would be a clump of trees, and
+        # draw_wall_column() would draw it as one, so the venue would exist
+        # and be invisible.
         b["club"] = b["casino"] = None
-        if _mix(i, j, 909) % CLUB_ODDS == 0:
+        if d["park"]:
+            pass
+        elif _mix(i, j, 909) % CLUB_ODDS == 0:
             b["height"] = rng.uniform(7.5, 12.0)      # squat, windowless
             b["club"] = {"door": rng.randrange(4),
                          "u": rng.uniform(1.4, CELL - 1.4),
@@ -1073,10 +1179,35 @@ def draw_casino_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge,
     return roof, awning, foot, letter_k
 
 
+def draw_tree_column(ch, co, v, sx, dist, b, u, r_lo, r_hi):
+    """A clump of trees, which is what a park has instead of buildings.
+
+    No roof line, no corner, no footing: the whole point of it is that nothing
+    about it is straight. The canopy height wanders along the clump so it has a
+    ragged top, and the trunks only show through in the gap underneath."""
+    scale = v.fy / dist
+    wob = (_mix(b["seed"], int(u * 2.5), 5) % 100) / 100.0
+    top_y = b["height"] * (0.70 + 0.30 * wob)
+    crown = int(round(v.horizon - (top_y - EYE_Y) * scale))
+    under = int(round(v.horizon - (top_y * 0.34 - EYE_Y) * scale))
+    leaf = tone_colour("leaf", b["tone"])
+    for y in range(max(r_lo, crown), min(r_hi, under) + 1):
+        if _mix(sx, y, 11) % 100 < 64:
+            ch[y][sx] = "&%*#"[_mix(sx, y, 13) % 4]
+            co[y][sx] = leaf
+    for y in range(max(r_lo, under + 1), r_hi + 1):
+        if _mix(sx, y, 17) % 5 == 0:
+            ch[y][sx] = "|"
+            co[y][sx] = BARK
+    return crown, None, None, None
+
+
 def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
                      edge, cont, lit, now):
     """One screen column of one facade. Returns what the caller needs to keep
     the lines along it joined up in the next column."""
+    if b["tree"]:
+        return draw_tree_column(ch, co, v, sx, dist, b, u, r_lo, r_hi)
     if b["club"] is not None:
         return draw_club_column(ch, co, v, sx, dist, b, face, u,
                                 r_lo, r_hi, edge, cont, now)
@@ -1386,6 +1517,7 @@ def draw_ground(ch, co, v, walls, glow, wet, now):
                 x0, y0 = i * CELL, j * CELL
                 # Only the wider streets are marked, and never through a
                 # junction - which is also how it works outside.
+                green = DISTRICTS[district_at(i, j)]["park"] and not road_at(i, j)
                 lane = None
                 if not solid:
                     along_x = road_span(i, XP, 91)
@@ -1415,7 +1547,12 @@ def draw_ground(ch, co, v, walls, glow, wet, now):
 
             g = glow.get(((int(x / GLOW_CELL + BIG) - BIG) * 65536)
                          + (int(z / GLOW_CELL + BIG) - BIG))
-            if edge < PAVE - 0.3:
+            if green:
+                h = _mix(int(x * 3.0), int(z * 3.0), 23)
+                if h % 3:
+                    continue
+                glyph, attr = ('"' if h % 7 == 0 else ","), GRASS
+            elif edge < PAVE - 0.3:
                 if _mix(int(x * 3.0), int(z * 3.0), 11) & 3:
                     continue
                 glyph, attr = ",", CURB
@@ -1643,6 +1780,24 @@ def draw_marquee(ch, co, v, walls, cas, world, now):
                 put_cell(ch, co, v, walls, sx + k, sy + dy, dist, "o", GOLD)
 
 
+def draw_lanterns(ch, co, v, walls, s, i, j, f, now, wet):
+    """A row of paper lanterns along a frontage, on their string, swaying.
+
+    Four of them across a five-metre front, which is close enough together to
+    read as a string rather than as four unrelated lights."""
+    lit, dark = NEON[min(len(NEON) - 1, int(s["tone"] * len(NEON)))]
+    for k in range(4):
+        u = 0.65 + k * 1.2
+        sway = 0.13 * math.sin(now * 1.1 + s["phase"] + k * 0.8)
+        x, _, z = face_point(i, j, f, u + sway, 0.6, 0.0)
+        put_cell_world(ch, co, v, walls, x, s["y"] + 0.55, z, "-", dark)
+        put_lit(ch, co, v, walls, x, s["y"], z, "o", lit, wet, now)
+
+
+def put_cell_world(ch, co, v, walls, x, y, z, glyph, attr):
+    put_point(ch, co, v, walls, x, y, z, glyph, attr)
+
+
 def draw_hung_sign(ch, co, v, walls, s, world, normal, now, wet):
     """A neon sign on a bracket over the pavement, letters stacked downwards.
 
@@ -1741,6 +1896,10 @@ def draw_props(ch, co, v, walls, now, wet):
                                           w, (nx, nz)))
                 continue
             fc = b["faces"][f]
+            if fc["lanterns"] is not None:
+                w = face_point(i, j, f, CELL * 0.5, 0.6, 0.0)
+                props.append((_d2(v, w), "lanterns", (fc["lanterns"], i, j, f),
+                              w, (nx, nz)))
             lit = road_at(i + nx, j + nz)
             if lit:
                 if fc["hung"] is not None:
@@ -1762,7 +1921,9 @@ def draw_props(ch, co, v, walls, now, wet):
     props.sort(key=lambda p: -p[0])
 
     for _, kind, s, world, normal in props:
-        if kind == "marquee":
+        if kind == "lanterns":
+            draw_lanterns(ch, co, v, walls, s[0], s[1], s[2], s[3], now, wet)
+        elif kind == "marquee":
             draw_marquee(ch, co, v, walls, s, world, now)
         elif kind == "hung":
             draw_hung_sign(ch, co, v, walls, s, world, normal, now, wet)
@@ -2442,6 +2603,29 @@ def _far_away(x, z):
     return None
 
 
+def _district_spot(x, z, want):
+    """Somewhere to stand well inside the nearest patch of this part of town.
+
+    Well inside matters: land on the edge of a district and half of what you
+    can see belongs to the one next door, which is no use for looking at."""
+    ci = int(x / CELL + BIG) - BIG
+    cj = int(z / CELL + BIG) - BIG
+    skip = CHEAT_SKIP ** 2
+    for i, j in _rings(ci, cj, CHEAT_RINGS):
+        if district_at(i, j) != want or not is_open(i, j):
+            continue
+        if sum(district_at(i + a, j + b) == want
+               for a, b in ((-5, 0), (5, 0), (0, -5), (0, 5))) < 3:
+            continue
+        px, pz = (i + 0.5) * CELL, (j + 0.5) * CELL
+        if (px - x) ** 2 + (pz - z) ** 2 < skip or not can_stand(px, pz):
+            continue
+        yaw, clear = best_view(px, pz)
+        if clear >= 12.0:
+            return px, pz, yaw
+    return None
+
+
 def _doorway(x, z, salt, key):
     """Standing in the door of the nearest one of these, which is what puts you
     inside it. No skipping the one underfoot here: if you are outside a club
@@ -2477,6 +2661,8 @@ def find_place(x, z, kind):
         return _doorway(x, z, 911, "casino")
     if kind == "clubdoor":
         return _doorway(x, z, 909, "club")
+    if kind.startswith("@"):
+        return _district_spot(x, z, int(kind[1:]))
 
     ci = int(x / CELL + BIG) - BIG
     cj = int(z / CELL + BIG) - BIG
@@ -2497,16 +2683,21 @@ def find_place(x, z, kind):
 
 def draw_cheats(ch, co, note):
     """The panel, drawn over the live frame rather than instead of it, so that
-    what you change to the weather happens in front of you."""
-    height, width = len(ch), len(ch[0])
-    body = [("", "CHEATS")]
-    body += [(k, name) for k, name, _ in CHEAT_PLACES]
-    body += [("", ""), ("w", "weather: " + weather_name()), ("L", "strike now"),
-             ("", ""), ("`", "close")]
-    if note:
-        body += [("", note)]
+    what you change to the weather happens in front of you.
 
-    w, h = 23, len(body) + 2
+    Two columns: there are as many parts of town to jump to as there are things
+    to jump to, and one list of twenty would be taller than most terminals."""
+    height, width = len(ch), len(ch[0])
+    left = [("", "CHEATS")]
+    left += [(k, name) for k, name, _ in CHEAT_PLACES]
+    left += [("", ""), ("w", "weather: " + weather_name()), ("L", "strike now")]
+    right = [("", "PARTS OF TOWN")]
+    right += [(d["key"], d["name"]) for d in DISTRICTS]
+    right += [("", ""), ("`", "close")]
+
+    col = 20
+    rows = max(len(left), len(right))
+    w, h = col * 2 + 3, rows + (3 if note else 2)
     if width < w + 4 or height < h + 2:
         return                          # no room; the city is more use
     x0, y0 = 2, 1
@@ -2518,14 +2709,17 @@ def draw_cheats(ch, co, note):
                                   "-" if r in (0, h - 1) else
                                   "|" if side else " ")
             co[y0 + r][x0 + c] = GOLD_DIM if side else 0
-    for r, (k, label) in enumerate(body):
-        y = y0 + 1 + r
-        if k:
-            _text(ch, co, y, x0 + 2, k, GOLD)
-            _text(ch, co, y, x0 + 4, label[:w - 6], HUD)
-        elif label:
-            _text(ch, co, y, x0 + 2, label[:w - 4],
-                  GOLD if label == "CHEATS" else FLASH)
+    for n, column in enumerate((left, right)):
+        cx = x0 + 2 + n * col
+        for r, (k, label) in enumerate(column):
+            y = y0 + 1 + r
+            if k:
+                _text(ch, co, y, cx, k, GOLD)
+                _text(ch, co, y, cx + 2, label[:col - 3], HUD)
+            elif label:
+                _text(ch, co, y, cx, label[:col - 1], GOLD)
+    if note:
+        _text(ch, co, y0 + h - 2, x0 + 2, note[:w - 4], FLASH)
 
 
 def _beam(ch, co, x0, y0, ang, y1, attr):
@@ -2649,7 +2843,7 @@ def render_rave(club, width, height, now):
 ARROWS = (curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_UP, curses.KEY_DOWN)
 
 SKYLINE_HUD = " x=%-6d %s  tab view  arrows/hl walk  HL run  space wander  ` cheats "
-STREET_HUD = " %d,%d %s  tab view  ws walk  ad turn  ,. step  space wander  ` cheats "
+STREET_HUD = " %d,%d %s, %s  ws walk  ad turn  ,. step  tab view  ` cheats "
 ROULETTE_HUD = " inside the %s casino at %d,%d  -  s walks back out  -  q quit "
 RAVE_HUD = " inside the club at %d,%d  -  s walks back out  -  q quit "
 
@@ -2698,7 +2892,10 @@ def main(stdscr):
                     force_strike(now)
                     note = "lightning"
                 else:
-                    for k, name, kind in CHEAT_PLACES:
+                    jumps = [(k, name, kind) for k, name, kind in CHEAT_PLACES]
+                    jumps += [(d["key"], d["name"], "@%d" % n)
+                              for n, d in enumerate(DISTRICTS)]
+                    for k, name, kind in jumps:
                         if key != ord(k):
                             continue
                         spot = find_place(cam_x, cam_z, kind)
@@ -2807,7 +3004,11 @@ def main(stdscr):
         elif street:
             v = View(cam_x, cam_z, yaw, width, height)
             ch, co, wet = render_street(v, now)
-            hud = STREET_HUD % (cam_x, cam_z, weather_word(now, wet))
+            hud = STREET_HUD % (
+                cam_x, cam_z,
+                district(int(cam_x / CELL + BIG) - BIG,
+                         int(cam_z / CELL + BIG) - BIG)["name"],
+                weather_word(now, wet))
         else:
             ch, co = render_skyline(sky_x, width, height, now)
             hud = SKYLINE_HUD % (sky_x, weather_word(now, rain_intensity(now)))
