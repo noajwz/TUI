@@ -145,6 +145,12 @@ dim shape, the near one is a lit building — and `gap` widening as it comes for
 near layer a row of towers with sky between them instead of a wall across the bottom. Both were the
 fix for a view that had become an unreadable mash of glyphs with no silhouette in it.
 
+The street has the matching pair. `road_span()` gives back where a road starts and how wide it is,
+not merely whether a cell is one, and that is what lets `draw_ground()` find the middle of a street
+to paint a dashed `'` line down — on the wider ones only, and never through a junction, which is how
+it works outside too. With the kerb already marking where pavement meets road, that is enough to
+tell street from building at a glance even with the neon going.
+
 `reflect()` mirrors everything above the waterline into the water. An ASCII reflection lives or dies
 on being broken up: same glyphs, displaced sideways by a swell that changes with depth and time, and
 thinned out with depth until it is gone in eight rows or so. Let it survive further down and it
@@ -169,9 +175,16 @@ there is no fisheye to correct at the edges.
   drawn, and the loop breaks once the cover reaches row 0.
 - **A ray that hits nothing** is looking out of the city down a cross street. `draw_sky()` gives
   those columns a taller haze silhouette; without it the vanishing point is a hole.
-- A horizontal line on a facade is a **slope on screen**, so roofs and awnings go through
+- A horizontal line on a facade is a **slope on screen**, so roofs, awnings and footings go through
   `facade_line()`, which fills from the previous column's row to this one's. One cell per column
   instead and the line breaks into dashes.
+- **Three lines make a building read as a building**: the roof, the awning over the shopfronts, and
+  the footing where the wall meets the ground. The footing is the one that does the most work and
+  was the last to arrive — with enough neon and lit windows in frame the eye stops being able to
+  tell where a building stops and the street starts, and a line along the bottom settles it
+  instantly. It is drawn last in the column so nothing paints over the join, and it is `CURB`
+  rather than the building's own trim, which puts it in the same visual language as the kerb: this
+  is ground level, everything below it is street.
 - **Corner bars are only for real corners.** Every cell is its own building, so a naive "the face
   changed, draw a bar" test puts a picket fence down every street. `draw_walls()` first checks
   whether the column to the left was the building *next door on the same plane*; that is a terrace,

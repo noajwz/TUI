@@ -122,13 +122,13 @@ PALETTES = {}      # e.g. {"near": [3, 7, 12, ...]} -> lists of curses pair numb
 NEON = []          # [(lit, unlit), ...] - one entry per neon tube colour
 STAR = STREET = HUD = CURB = HAZE = SMOKE = EMBER = EMBER_HOT = 0
 RAIN = RAIN_FAR = BULB = BULB_DIM = FLASH = CONCRETE = 0
-GOLD = GOLD_DIM = ROU_RED = ROU_BLACK = ROU_GREEN = 0
+GOLD = GOLD_DIM = ROU_RED = ROU_BLACK = ROU_GREEN = LANE = 0
 
 
 def init_colors():
     global PALETTES, NEON, STAR, STREET, HUD, CURB, HAZE, SMOKE, EMBER
     global EMBER_HOT, RAIN, RAIN_FAR, BULB, BULB_DIM, FLASH, CONCRETE
-    global GOLD, GOLD_DIM, ROU_RED, ROU_BLACK, ROU_GREEN
+    global GOLD, GOLD_DIM, ROU_RED, ROU_BLACK, ROU_GREEN, LANE
 
     curses.start_color()
     try:
@@ -154,7 +154,7 @@ def init_colors():
                   "rain": 110, "rain_far": 60, "bulb": 222, "bulb_dim": 58,
                   "flash": 231, "concrete": 234, "gold": 220,
                   "gold_dim": 136, "rou_red": 196, "rou_black": 252,
-                  "rou_green": 46}
+                  "rou_green": 46, "lane": 250}
         attrs = {}
     else:
         # 8-colour fallback: bold = the "bright" version of a colour.
@@ -178,7 +178,8 @@ def init_colors():
                   "flash": curses.COLOR_WHITE, "concrete": curses.COLOR_BLACK,
                   "gold": curses.COLOR_YELLOW, "gold_dim": curses.COLOR_YELLOW,
                   "rou_red": curses.COLOR_RED, "rou_black": curses.COLOR_WHITE,
-                  "rou_green": curses.COLOR_GREEN}
+                  "rou_green": curses.COLOR_GREEN,
+                  "lane": curses.COLOR_WHITE}
         attrs = {"near": curses.A_BOLD}
 
     pair = 1
@@ -225,6 +226,7 @@ def init_colors():
     ROU_RED = made["rou_red"] | curses.A_BOLD
     ROU_BLACK = made["rou_black"] | curses.A_BOLD
     ROU_GREEN = made["rou_green"] | curses.A_BOLD
+    LANE = made["lane"]
 
 
 def tone_colour(name, tone):
@@ -536,23 +538,32 @@ def _built_over(k, salt):
     return _mix(k, 0, salt) % 13 == 0
 
 
+def road_span(i, period, salt):
+    """(first cell, width in cells) of the road cell i belongs to, or None.
+
+    Knowing where a road starts and how wide it is - not merely that a cell is
+    one - is what lets the ground pass find the middle of it to paint a line
+    down."""
+    k, r = divmod(i, period)
+    # An avenue may be built over, but never two in a row. Left to chance they
+    # clump: three in a row leaves a 180-unit stretch with no cross street
+    # anywhere in it, and that stops reading as a long block and starts reading
+    # as the city having quietly changed into somewhere else. One at a time
+    # still merges two blocks, which is the point.
+    if _built_over(k, salt) and not _built_over(k - 1, salt):
+        return None
+    m = _mix(k, 0, salt)
+    off = (m >> 9) % 2
+    wide = 2 + ((m >> 4) & 1)
+    return (k * period + off, wide) if off <= r < off + wide else None
+
+
 def _is_road(i, period, salt):
     key = i * 31 + salt
     hit = _road_cache.get(key)
     if hit is None:
         _evict(_road_cache, 8000)
-        k, r = divmod(i, period)
-        m = _mix(k, 0, salt)
-        # An avenue may be built over, but never two in a row. Left to chance
-        # they clump: three in a row leaves a 180-unit stretch with no cross
-        # street anywhere in it, and that stops reading as a long block and
-        # starts reading as the city having quietly changed into somewhere
-        # else. One at a time still merges two blocks, which is the point.
-        if _built_over(k, salt) and not _built_over(k - 1, salt):
-            hit = False
-        else:
-            off = (m >> 9) % 2
-            hit = off <= r < off + 2 + ((m >> 4) & 1)
+        hit = road_span(i, period, salt) is not None
         _road_cache[key] = hit
     return hit
 
@@ -920,14 +931,16 @@ def draw_club_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge, cont,
     club = b["club"]
     trim = FLASH if v.flash > 0.35 else CONCRETE
     roof = int(round(v.horizon - (b["height"] - EYE_Y) * scale))
+    foot = int(round(v.horizon + EYE_Y * scale))
 
     if edge:
         for y in range(r_lo, r_hi + 1):
             ch[y][sx] = "|"
             co[y][sx] = trim
-        return roof, None, None
+        return roof, None, foot, None
 
     facade_line(ch, co, sx, roof, cont[0], r_lo, r_hi, "=", trim)
+    facade_line(ch, co, sx, foot, cont[2], r_lo, r_hi, "_", CURB)
 
     # Bare concrete. Speckled rather than filled, so it reads as a mass with
     # no windows in it instead of as a hole in the street.
@@ -950,7 +963,7 @@ def draw_club_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge, cont,
         for y in range(max(r_lo, head), r_hi + 1):
             ch[y][sx] = "#" if lamp is not None else "]"
             co[y][sx] = lamp if lamp is not None else CONCRETE
-    return roof, None, None
+    return roof, None, foot, None
 
 
 def chase(u, now, period=0.8):
@@ -977,14 +990,15 @@ def draw_casino_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge,
     cas = b["casino"]
     trim = FLASH if v.flash > 0.35 else GOLD_DIM
     roof = int(round(v.horizon - (b["height"] - EYE_Y) * scale))
+    foot = int(round(v.horizon + EYE_Y * scale))
 
     if edge:
         for y in range(r_lo, r_hi + 1):
             ch[y][sx] = "|"
             co[y][sx] = trim
-        return roof, None, None
+        return roof, None, foot, None
 
-    prev_roof, prev_awn, prev_k = cont
+    prev_roof, prev_awn, prev_foot, prev_k = cont
     awning = int(round(v.horizon - (FLOOR_H - EYE_Y) * scale))
     facade_line(ch, co, sx, roof, prev_roof, r_lo, r_hi, "=", trim)
     facade_line(ch, co, sx, awning, prev_awn, r_lo, r_hi, "-", trim)
@@ -1037,7 +1051,9 @@ def draw_casino_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge,
             if r_lo <= yy <= r_hi:
                 ch[yy][sx] = glyph
                 co[yy][sx] = attr
-    return roof, awning, letter_k
+    # Last, so nothing paints over where the wall meets the ground.
+    facade_line(ch, co, sx, foot, prev_foot, r_lo, r_hi, "_", CURB)
+    return roof, awning, foot, letter_k
 
 
 def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
@@ -1058,6 +1074,7 @@ def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
         trim = FLASH
     roof = int(round(v.horizon - (b["height"] - EYE_Y) * scale))
     awning = int(round(v.horizon - (FLOOR_H - EYE_Y) * scale))
+    foot = int(round(v.horizon + EYE_Y * scale))
 
     if edge:
         # A building corner. Solid, so it reads as a hard edge and nothing
@@ -1067,9 +1084,9 @@ def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
         for y in range(r_lo, r_hi + 1):
             ch[y][sx] = "|"
             co[y][sx] = trim
-        return roof, awning, None
+        return roof, awning, foot, None
 
-    prev_roof, prev_awn, prev_k = cont
+    prev_roof, prev_awn, prev_foot, prev_k = cont
     facade_line(ch, co, sx, roof, prev_roof, r_lo, r_hi, "=", trim)
     if lit:                       # an alley has no shopfronts to put one over
         facade_line(ch, co, sx, awning, prev_awn, r_lo, r_hi, "-", trim)
@@ -1125,7 +1142,8 @@ def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
             if r_lo <= yy <= r_hi:
                 ch[yy][sx] = glyph
                 co[yy][sx] = attr
-    return roof, awning, letter_k
+    facade_line(ch, co, sx, foot, prev_foot, r_lo, r_hi, "_", CURB)
+    return roof, awning, foot, letter_k
 
 
 def draw_walls(ch, co, v, now):
@@ -1164,12 +1182,12 @@ def draw_walls(ch, co, v, now):
                            else ((i - 1, j, f), (i + 1, j, f))):
                     w = seen.get(nk)
                     if w is not None and w[0] == sx - 1:
-                        cont = (w[1][0], w[1][1], None)
+                        cont = (w[1][0], w[1][1], w[1][2], None)
                         break
             nx, nz = FACES[f]
             seen[key] = (sx, draw_wall_column(
                 ch, co, v, sx, dist, b, f, u, r_lo, r_hi,
-                cont is None and sx > 0, cont or (None, None, None),
+                cont is None and sx > 0, cont or (None, None, None, None),
                 road_at(i + nx, j + nz), now))
             cover = r_lo if cover is None else min(cover, r_lo)
             if not n:
@@ -1349,6 +1367,18 @@ def draw_ground(ch, co, v, walls, glow, wet, now):
                 li, lj = i, j
                 solid = not is_open(i, j)
                 x0, y0 = i * CELL, j * CELL
+                # Only the wider streets are marked, and never through a
+                # junction - which is also how it works outside.
+                lane = None
+                if not solid:
+                    along_x = road_span(i, XP, 91)
+                    along_z = road_span(j, ZP, 137)
+                    if along_x and along_z:
+                        lane = None
+                    elif along_x and along_x[1] >= 3:
+                        lane = (0, (along_x[0] + along_x[1] * 0.5) * CELL)
+                    elif along_z and along_z[1] >= 3:
+                        lane = (1, (along_z[0] + along_z[1] * 0.5) * CELL)
             if solid:
                 continue
 
@@ -1374,6 +1404,10 @@ def draw_ground(ch, co, v, walls, glow, wet, now):
                 glyph, attr = ",", CURB
             elif edge < 1e8:
                 glyph, attr = "=", CURB               # the kerb
+            elif (lane is not None
+                  and abs((x if lane[0] == 0 else z) - lane[1]) < 0.34
+                  and int((z if lane[0] == 0 else x) / 3.0) % 2 == 0):
+                glyph, attr = "'", LANE               # the line down the middle
             else:
                 h = _mix(int(x * 3.0), int(z * 3.0), 7)
                 if ripple and h & 31 == 0:
