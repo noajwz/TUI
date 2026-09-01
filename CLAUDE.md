@@ -220,13 +220,27 @@ the sky fills pale, every corner and roof line goes white, the rain lights up, a
 promotes alley faces from the `dark` palette to `far`, which for half a second shows you what is
 down there.
 
-None of that was enough. Lighting only the sky leaves every facade exactly the dark shape it already
+It took two goes to get this right, and both problems were only findable by measuring.
+
+**How much** it lights. Lighting only the sky leaves every facade exactly the dark shape it already
 was, so in a street — where there is barely any sky in frame — a strike lit 7% of the screen and
 read as *the rain went white*. `draw_flash()` fixes it by filling the blank parts of every wall, so
 the buildings become lit surfaces for the tenth of a second they are lit for, with their windows and
 neon still showing through. That takes a strike from 7% of the street to about 52%, and the skyline
 to 42%. Density matters: fill the walls as hard as the sky and the silhouette disappears into a
 whiteout, so the walls go to roughly half what the sky does.
+
+**How long** it lights, which is the half that was still wrong afterwards. `_strike_flash()` was
+three sub-flashes with nothing in between, and driving the real program through a pty and counting
+bytes per frame showed exactly what that means: three isolated repaints at 0.00s, 0.10s and 0.26s
+and then a dead screen. At thirty frames a second that is a blink, and one you can sit through
+without noticing the city lit up at all. The flicker now rides on a glow that does not go out until
+the strike is over, with a tail decaying across about a second — 19 repainted frames over 1.1s
+instead of 3 over 0.3s. The tail is most of what you actually register.
+
+Both of those were reported as "lightning doesn't work", twice, and neither was visible from
+reading the code or from a single rendered frame. Counting output per frame through a pty is the
+tool for anything whose defect is *when* it happens rather than *what* it draws.
 
 Drops sit on a **world-locked lattice** so they hold still relative to the city while you walk and
 turn through them, and each is drawn as the segment it fell through since the last frame, which is

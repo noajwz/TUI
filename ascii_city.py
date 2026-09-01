@@ -476,7 +476,7 @@ def render_skyline(cam_x, width, height, now):
                 blit(ch, co, b, sx, ground)
 
     draw_flash_sky(ch, co, water, flash)
-    if flash >= 0.12:
+    if flash >= 0.05:
         dens = int(flash * 70)
         for y in range(water):
             row, rowc = ch[y], co[y]
@@ -1187,7 +1187,7 @@ def draw_flash(ch, co, v, walls, flash):
     the strike reads as the rain having gone white. Filling the blank parts of
     each wall turns the buildings into lit surfaces for the tenth of a second
     they are lit for, which is the entire point of lightning."""
-    if flash < 0.12:
+    if flash < 0.05:
         return
     walls_d, walls_top, walls_base = walls
     dens = int(flash * 55)
@@ -1755,19 +1755,28 @@ def rain_intensity(now):
 
 
 def _strike_flash(t, twice):
-    """The shape of one strike: two or three sub-flashes a tenth of a second
-    apart with an afterglow behind them, because a single clean flash reads as
-    a rendering bug. Shared, so a strike you asked for is the same strike as
-    one the storm was going to have anyway."""
-    if not 0.0 <= t < 1.3:
+    """The shape of one strike, as a brightness over time.
+
+    Sub-flashes riding on a glow that does not go out until the strike is over.
+    The flicker on its own measured as three isolated frames with dark gaps
+    between them - at thirty frames a second that is a blink, and one you can
+    easily sit through without noticing the city lit up at all. The glow
+    underneath is what turns it into a single event you can see, and the tail
+    is most of what you actually register.
+
+    Shared, so a strike you asked for is the same strike the storm was going to
+    have anyway."""
+    if not 0.0 <= t < 1.7:
         return 0.0
-    b = 0.0
-    for n, (delay, amp) in enumerate(((0.0, 1.0), (0.11, 0.72), (0.27, 0.45))):
+    peak = 0.0
+    for n, (delay, amp, span) in enumerate(((0.00, 1.00, 0.10),
+                                            (0.16, 0.88, 0.09),
+                                            (0.36, 0.62, 0.08))):
         if n == 2 and twice:
             break
-        if 0.0 <= t - delay < 0.07:
-            b = max(b, amp)
-    return max(b, 0.3 * math.exp(-(t - 0.3) * 4.0) if t > 0.3 else 0.0)
+        if 0.0 <= t - delay < span:
+            peak = amp
+    return max(peak, 0.78 * math.exp(-t * 2.3))
 
 
 def lightning(now, wet):
