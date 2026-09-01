@@ -91,7 +91,7 @@ STRIKE_WET = 0.62      # it has to be coming down this hard for a storm at all
 # --- the club, and the casino across town ---
 CLUB_ODDS = 1200       # one building in this many is one, and it is unmarked
 CLUB_BPM = 134.0
-CASINO_REACH = 1.55    # how close to the door you have to get to be inside
+CASINO_REACH = 2.3     # how close to the door you have to get to be inside
 CASINO_AGAIN = 1.6     # seconds before it deals you another one
 
 CASINO_NAMES = ["ROYALE", "GOLDEN", "LUCKY", "ACES", "MIRAGE", "JACKPOT",
@@ -476,6 +476,14 @@ def render_skyline(cam_x, width, height, now):
                 blit(ch, co, b, sx, ground)
 
     draw_flash_sky(ch, co, water, flash)
+    if flash >= 0.12:
+        dens = int(flash * 70)
+        for y in range(water):
+            row, rowc = ch[y], co[y]
+            for x in range(width):
+                if row[x] == " " and _mix(x, y, 97) % 100 < dens:
+                    row[x] = ":"
+                    rowc[x] = FLASH
     reflect(ch, co, water, now, wet, flash)
     draw_water(ch, co, water, now, wet)
     draw_skyline_rain(ch, co, cam_x, water, now, wet, flash)
@@ -648,6 +656,26 @@ def make_face(rng, height):
     return face
 
 
+def _road_face(i, j, prefer):
+    """A face giving onto a proper street, preferring the one asked for, or
+    None if the building has no street frontage at all.
+
+    A casino down a five-foot alley can never be stood far enough back from to
+    read - its marquee lands off the top of the screen - so a building with
+    nothing but alley on every side does not get to be one. That also gives the
+    city a division of labour worth having: the casinos out on the main roads
+    shouting about it, the club down a back street with no sign at all.
+
+    Safe to ask about the neighbours from inside generation: is_open() and
+    road_at() are pure functions of their own coordinates and never call lot(),
+    so there is no circle to get stuck in."""
+    for f in [prefer] + [k for k in range(4) if k != prefer]:
+        nx, nz = FACES[f]
+        if is_open(i + nx, j + nz) and road_at(i + nx, j + nz):
+            return f
+    return None
+
+
 def lot(i, j):
     key = i * 1048576 + j
     b = _lots.get(key)
@@ -675,11 +703,15 @@ def lot(i, j):
         elif _mix(i, j, 911) % CLUB_ODDS == 0:
             # Same odds as the club and the exact opposite of it in every
             # other respect.
-            b["height"] = rng.uniform(9.0, 16.0)
-            b["casino"] = {"door": rng.randrange(4),
-                           "u": rng.uniform(1.4, CELL - 1.4),
-                           "name": rng.choice(CASINO_NAMES),
-                           "tone": rng.random()}
+            face = _road_face(i, j, rng.randrange(4))
+            if face is not None:
+                b["height"] = rng.uniform(9.0, 16.0)
+                b["casino"] = {"door": face,
+                               "u": rng.uniform(1.4, CELL - 1.4),
+                               "name": rng.choice(CASINO_NAMES),
+                               "tone": rng.random(),
+                               "sign_tone": rng.random(),
+                               "phase": rng.uniform(0.0, 5.0)}
         _lots[key] = b
     return b
 
@@ -918,8 +950,15 @@ def draw_club_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge, cont,
 def chase(u, now, period=0.8):
     """A running bulb chase, the kind that goes round a casino sign. Lit is a
     function of where the bulb is and what time it is, so the whole building
-    agrees on the pattern without anything being stored."""
-    return (int(u / 0.55) - int(now * 9.0)) % 3 == 0
+    agrees on the pattern without anything being stored.
+
+    The bulbs sit close together on purpose: space them by half a world unit
+    and at arm's length one bulb covers eight columns, which reads as a lit
+    stripe rather than as a row of lights."""
+    return (int(u / 0.2) - int(now * 24.0)) % 3 == 0
+
+
+
 
 
 def draw_casino_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge,
@@ -977,7 +1016,7 @@ def draw_casino_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi, edge,
         elif not lit_bay:
             continue
         elif f == 0:
-            if abs(u - cas["u"]) < 0.9:
+            if abs(u - cas["u"]) < 0.9 and face == cas["door"]:
                 glyph, attr = ("o", GOLD) if chase(u + now, now) else ("#", GOLD_DIM)
             else:
                 glyph, attr = "#", gold
@@ -1140,6 +1179,35 @@ def draw_walls(ch, co, v, now):
 # ---------------------------------------------------------------------------
 # Sky, ground and the light lying on it
 # ---------------------------------------------------------------------------
+
+def draw_flash(ch, co, v, walls, flash):
+    """What a strike actually does: pick out the whole city at once.
+
+    Lighting only the sky leaves every facade the same dark shape it was, and
+    the strike reads as the rain having gone white. Filling the blank parts of
+    each wall turns the buildings into lit surfaces for the tenth of a second
+    they are lit for, which is the entire point of lightning."""
+    if flash < 0.12:
+        return
+    walls_d, walls_top, walls_base = walls
+    dens = int(flash * 55)
+    for sx in range(v.width):
+        if walls_d[sx] is None:
+            continue
+        lo = max(0, walls_top[sx])
+        hi = min(v.height - 1, walls_base[sx])
+        for y in range(lo, hi + 1):
+            if ch[y][sx] == " " and _mix(sx, y, 97) % 100 < dens:
+                ch[y][sx] = ":"
+                co[y][sx] = FLASH
+    ground = int(flash * 30)
+    for y in range(v.horizon + 1, v.height):
+        row, rowc = ch[y], co[y]
+        for sx in range(v.width):
+            if row[sx] == " " and _mix(sx, y, 131) % 100 < ground:
+                row[sx] = "."
+                rowc[sx] = FLASH
+
 
 def draw_sky(ch, co, v, walls, wet):
     """Stars, and a haze of distant roofs at the horizon.
@@ -1494,6 +1562,30 @@ def draw_raver(ch, co, v, walls, p, now, wet):
                       "*o."[m], lit if m == 0 else dark)
 
 
+def draw_marquee(ch, co, v, walls, cas, world, now):
+    """The word, in lights, across the front of a casino.
+
+    Laid out in screen space with the letters side by side. A marquee that
+    shrank with distance is a smear long before you can stand far enough back
+    to see the whole building - and on a fifteen-foot street you never can - so
+    this one is a stylised fixed size. Unreadable is worse than the wrong size,
+    which is the same call the hung signs make about their rows."""
+    pr = v.project(world[0], world[1], world[2])
+    if pr is None:
+        return
+    sx, sy, dist = int(round(pr[0])), int(round(pr[1])), pr[2]
+    neon = NEON[min(len(NEON) - 1, int(cas["sign_tone"] * len(NEON)))][0]
+    for row, (word, attr) in enumerate((("CASINO", neon), (cas["name"], GOLD))):
+        x0 = sx - len(word) // 2
+        for k, c in enumerate(word):
+            put_cell(ch, co, v, walls, x0 + k, sy + row, dist, c, attr)
+    span = max(len("CASINO"), len(cas["name"])) // 2 + 2
+    for k in range(-span, span + 1):
+        for dy in (-1, 2):
+            if chase(k * 0.2 + dy * 0.4, now):
+                put_cell(ch, co, v, walls, sx + k, sy + dy, dist, "o", GOLD)
+
+
 def draw_hung_sign(ch, co, v, walls, s, world, now, wet):
     """A neon sign on a bracket over the pavement, letters stacked downwards -
     the one kind you can still read head-on from the far end of the street.
@@ -1548,6 +1640,10 @@ def draw_props(ch, co, v, walls, now, wet):
             if not is_open(i + nx, j + nz):
                 continue
             if b["casino"] is not None:
+                # It has to be obvious from down the street what this is.
+                if f == b["casino"]["door"]:
+                    w = face_point(i, j, f, CELL * 0.5, 0.6, 4.6)
+                    props.append((_d2(v, w), "marquee", b["casino"], w, (nx, nz)))
                 continue
             if b["club"] is not None:
                 # Nobody is getting in for a while. Some of them are dancing
@@ -1590,7 +1686,9 @@ def draw_props(ch, co, v, walls, now, wet):
     props.sort(key=lambda p: -p[0])
 
     for _, kind, s, world, normal in props:
-        if kind == "hung":
+        if kind == "marquee":
+            draw_marquee(ch, co, v, walls, s, world, now)
+        elif kind == "hung":
             draw_hung_sign(ch, co, v, walls, s, world, now, wet)
         elif kind == "raver":
             s["world"] = world
@@ -1788,6 +1886,7 @@ def render_street(v, now):
     walls = draw_walls(ch, co, v, now)
     draw_sky(ch, co, v, walls, wet)
     draw_ground(ch, co, v, walls, collect_glow(v, now, wet), wet, now)
+    draw_flash(ch, co, v, walls, v.flash)
     draw_props(ch, co, v, walls, now, wet)
     draw_rain(ch, co, v, walls, now, wet)
     return ch, co, wet
@@ -1955,22 +2054,50 @@ def _big(ch, co, y, x, s, attr):
             col += 2
 
 
-def render_roulette(spin, width, height, now):
+def render_casino_room(spin, width, height, now):
+    """Inside.
+
+    The wheel is the middle of a room rather than the whole screen: a ceiling
+    with the lights chasing along it, a back wall of slot machines with their
+    reels going, the table with people round it, and the way out behind you. A
+    window with no space for the room gets the wheel on its own, and one with
+    no space for that gets a line of text."""
     ch = [[" "] * width for _ in range(height)]
     co = [[0] * width for _ in range(height)]
     t = now - spin.t0
     cx = (width - 1) / 2.0
-    cy = height * 0.47
-    rx = min(width * 0.40, 48.0)
-    ry = min(height * 0.34, 12.0)
+    top, floor = 1, height - 1
+    roomy = width >= 46 and height >= 22
 
-    if rx < 12 or ry < 4:            # too small a window for a wheel
-        _text(ch, co, height // 2, 1, "%s: %d" % (spin.name, spin.result),
-              pocket_colour(spin.result))
+    if roomy:
+        for x in range(width):                       # the ceiling, in lights
+            lit = chase(x * 0.2, now)
+            ch[top][x] = "o" if lit else "="
+            co[top][x] = GOLD if lit else GOLD_DIM
+        banner = "CASINO  %s" % spin.name
+        _text(ch, co, top + 1, int(cx - len(banner) / 2), banner, GOLD)
+        for x in range(2, width - 6, 9):             # a back wall of slots
+            if abs(x + 2 - cx) < len(banner) / 2 + 3:
+                continue
+            reel = "".join("7$@&%"[(_mix(x, k, 53) + int(now * (3 + k))) % 5]
+                           for k in range(2))
+            _text(ch, co, top + 2, x, ".--.", GOLD_DIM)
+            _text(ch, co, top + 3, x, "|" + reel + "|", ROU_RED)
+        band_top, band_bot = top + 5, floor - 5
+    else:
+        band_top, band_bot = top, floor - 1
+
+    cy = (band_top + band_bot) / 2.0
+    rx = min(width * 0.36, 42.0)
+    ry = min((band_bot - band_top) / 2.0 - 0.5, 10.0)
+
+    if rx < 12 or ry < 3.5:
+        say = ("%s: %d" % (spin.name, spin.result) if spin.settled(now)
+               else "%s: ..." % spin.name)
+        _text(ch, co, height // 2, 1, say,
+              pocket_colour(spin.result) if spin.settled(now) else GOLD)
+        _text(ch, co, min(height - 1, height // 2 + 2), 1, "s to leave", GOLD_DIM)
         return ch, co
-
-    _text(ch, co, 0, max(0, int(cx) - len(spin.name) // 2 - 4),
-          "* %s *" % spin.name, GOLD)
 
     wa = spin.wheel_at(t)
     for k, num in enumerate(WHEEL):
@@ -2008,7 +2135,18 @@ def render_roulette(spin, width, height, now):
         say = "RIEN NE VA PLUS" if t > SPIN_TIME * 0.45 else "FAITES VOS JEUX"
         _text(ch, co, mid, int(cx - len(say) / 2), say, GOLD_DIM)
 
-    _text(ch, co, height - 2, 2, "walk back out (s) to leave", GOLD_DIM)
+    if roomy:
+        edge = min(height - 4, int(cy + ry) + 2)     # the near lip of the table
+        for x in range(max(0, int(cx - rx - 4)), min(width, int(cx + rx + 5))):
+            ch[edge][x] = "="
+            co[edge][x] = GOLD_DIM
+        for k in range(-2, 3):                       # and who is round it
+            px = int(cx + k * 15) - 2
+            for r, line in enumerate((" ,-. ", "(- -)", "_/|\\_")):
+                if edge + 1 + r < height:
+                    _text(ch, co, edge + 1 + r, px, line, CURB)
+
+    _text(ch, co, floor, max(1, int(cx) - 10), "-- the way out (s) --", GOLD_DIM)
     return ch, co
 
 
@@ -2035,6 +2173,7 @@ CHEAT_PLACES = [
     ("6", "long street", "street"),
     ("7", "back to start", "start"),
     ("8", "far away", "far"),
+    ("9", "inside a casino", "inside"),
 ]
 
 
@@ -2161,6 +2300,28 @@ def _far_away(x, z):
     return None
 
 
+def _casino_doorway(x, z):
+    """Standing in the door of the nearest casino, which is what puts you in
+    it. No skipping the one underfoot here: if you are outside a casino and ask
+    to go in, you mean that one."""
+    ci = int(x / CELL + BIG) - BIG
+    cj = int(z / CELL + BIG) - BIG
+    for i, j in _rings(ci, cj, CHEAT_RINGS):
+        if _mix(i, j, 911) % CLUB_ODDS or is_open(i, j):
+            continue
+        c = lot(i, j)["casino"]
+        if c is None:
+            continue
+        f = c["door"]
+        nx, nz = FACES[f]
+        if not is_open(i + nx, j + nz):
+            continue
+        p = face_point(i, j, f, c["u"], 1.4, 0.0)
+        if can_stand(p[0], p[2]):
+            return p[0], p[2], math.atan2(-nx, -nz)
+    return None
+
+
 def find_place(x, z, kind):
     """Somewhere of this kind to stand, and which way to face. None if there is
     none within reach - the panel says so rather than the search running on."""
@@ -2171,6 +2332,8 @@ def find_place(x, z, kind):
         return _long_street(x, z)
     if kind == "far":
         return _far_away(x, z)
+    if kind == "inside":
+        return _casino_doorway(x, z)
 
     ci = int(x / CELL + BIG) - BIG
     cj = int(z / CELL + BIG) - BIG
@@ -2230,7 +2393,7 @@ ARROWS = (curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_UP, curses.KEY_DOWN)
 
 SKYLINE_HUD = " x=%-6d %s  tab view  arrows/hl walk  HL run  space wander  ` cheats "
 STREET_HUD = " %d,%d %s  tab view  ws walk  ad turn  ,. step  space wander  ` cheats "
-ROULETTE_HUD = " %s  -  you are inside at %d,%d  -  s walks back out  -  q quit "
+ROULETTE_HUD = " inside the %s casino at %d,%d  -  s walks back out  -  q quit "
 
 
 def main(stdscr):
@@ -2378,7 +2541,7 @@ def main(stdscr):
         # --- draw ------------------------------------------------------
         height, width = stdscr.getmaxyx()
         if wheel is not None:
-            ch, co = render_roulette(wheel, width, height, now)
+            ch, co = render_casino_room(wheel, width, height, now)
             hud = ROULETTE_HUD % (wheel.name, cam_x, cam_z)
         elif street:
             v = View(cam_x, cam_z, yaw, width, height)

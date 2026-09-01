@@ -216,9 +216,17 @@ you got there. One clean flash reads as a rendering bug, so a strike is two or t
 tenth of a second apart with an afterglow decaying behind them.
 
 A flash is the only thing in the program that reaches across every pass at once, through `v.flash`:
-the sky fills pale so everything with a roof turns into a silhouette against it, every corner and
-roof line goes white, the rain lights up, the road takes a wash — and `wall_colour()` promotes alley
-faces from the `dark` palette to `far`, which for half a second shows you what is down there.
+the sky fills pale, every corner and roof line goes white, the rain lights up, and `wall_colour()`
+promotes alley faces from the `dark` palette to `far`, which for half a second shows you what is
+down there.
+
+None of that was enough. Lighting only the sky leaves every facade exactly the dark shape it already
+was, so in a street — where there is barely any sky in frame — a strike lit 7% of the screen and
+read as *the rain went white*. `draw_flash()` fixes it by filling the blank parts of every wall, so
+the buildings become lit surfaces for the tenth of a second they are lit for, with their windows and
+neon still showing through. That takes a strike from 7% of the street to about 52%, and the skyline
+to 42%. Density matters: fill the walls as hard as the sky and the silhouette disappears into a
+whiteout, so the walls go to roughly half what the sky does.
 
 Drops sit on a **world-locked lattice** so they hold still relative to the city while you walk and
 turn through them, and each is drawn as the segment it fell through since the last frame, which is
@@ -250,12 +258,35 @@ swing tight — at arm's length the trails of five dancers overlap into noise.
 ### The casino, and the one door in the city that opens
 
 Same odds as the club (`CLUB_ODDS`, different salt) and mutually exclusive with it, so a building is
-never both. `draw_casino_column()` is the club's opposite in every respect: bulbs chasing round the
-roof and the door canopy, its name across the front in neon, and every window in the place lit.
-`chase()` is the running-bulb pattern — a function of where the bulb is and what time it is, so the
-whole building agrees on it without anything being stored.
+never both — but a building with **no street frontage does not get to be one**. `_road_face()` is
+what enforces that, and it is not fussiness: a casino down a five-foot alley can never be stood far
+enough back from to read, its marquee lands off the top of the screen, and reporting "the casino
+doesn't work" is the only possible outcome. It also gives the city a division of labour worth
+having — the casinos out on the main roads shouting about it, the club down a back street with no
+sign at all. It costs about a fifth of them (one every 335 units against the club's 265).
 
-**It is the only building you can enter.** Everything else in the city is a solid cell that
+Asking about the neighbours from inside `lot()` is safe, and worth understanding: `is_open()` and
+`road_at()` are pure functions of *their own* coordinates and never call `lot()`, so there is no
+circle. Determinism is untouched.
+
+`draw_casino_column()` is the club's opposite in every respect: bulbs chasing round the roof and the
+door canopy, and every window in the place lit. `chase()` is the running-bulb pattern — a function
+of where the bulb is and what time it is, so the whole building agrees without anything being
+stored. Space those bulbs by half a world unit and at arm's length one bulb covers eight columns,
+which reads as a lit stripe and not as lights; they sit close together on purpose.
+
+`draw_marquee()` is what actually says *casino*. It is laid out in **screen space, letters side by
+side**, unlike everything else on a facade. A marquee that shrank with distance is a smear long
+before you can stand far enough back to see the whole building — and on a fifteen-foot street you
+never can — so it is a stylised fixed size. Unreadable is worse than the wrong size, which is the
+same call the hung signs make about their rows.
+
+**It is the only building you can enter,** and going in gets you a room rather than a screenful of
+wheel. `render_casino_room()` puts the wheel in the middle of one: a ceiling with the lights chasing
+along it, a back wall of slot machines with their reels going, the table with five people round it,
+and the way out behind you. It degrades twice — no room for the furniture gets you the bare wheel,
+no room for that gets you a line of text — because it has to survive a 20x8 window like everything
+else. Everything else in the city is a solid cell that
 `can_stand()` keeps you out of; the casino is a proximity trigger instead of an interior.
 `casino_at()` scans the 5x5 cells around you for a door within `CASINO_REACH`, and while you are
 standing in one, `main()` renders the wheel instead of the street. Walk back out and it is gone.
