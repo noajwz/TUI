@@ -132,9 +132,8 @@ WINDOW_GLYPHS = "08XZ:+=*%@o.#"
 # (balconies, or the ribs of a corrugated shed); mullion draws a vertical one
 # at every bay, which is what a glass curtain wall looks like and nothing else
 # does; ground is what the shopfronts are made of and gap how often there is a
-# doorway instead. alley_lit is yokocho's whole character - signs and warm
-# light down the back lane, where every other district has a bare bulb and the
-# dark palette.
+# doorway instead. What goes on a face that gives onto an alley is not a
+# district's business at all: see yokocho_at().
 # ---------------------------------------------------------------------------
 
 DISTRICT_CELLS = 36        # about 180 world units square, a few blocks
@@ -144,55 +143,41 @@ DISTRICTS = [
          dens=(0.26, 0.70), flat=0.45, hung=0.45, smoke=0.30, bulb=0.45,
          neon=None, lantern=0.0, park=False,
          glyphs="08XZ*%@#", band=None, mullion=False, ground="#", gap=4,
-         alley_lit=False,
          pal="near", roof="=", whole_floors=False, cjk=False),
     dict(key="r", name="residential", weight=5, scale=0.45, lo=6.0, hi=14.0,
          dens=(0.34, 0.66), flat=0.0, hung=0.0, smoke=0.18, bulb=0.30,
          neon=None, lantern=0.0, park=False,
-         glyphs="0oo.", band="-", mullion=False, ground="n", gap=3,
-         alley_lit=False,
+         glyphs="0oo.", band="\"", mullion=False, ground="n", gap=3,
          pal="warm", roof="=", whole_floors=False, cjk=False),
     dict(key="o", name="old town", weight=4, scale=0.6, lo=7.0, hi=18.0,
          dens=(0.30, 0.62), flat=0.15, hung=0.20, smoke=0.30, bulb=0.40,
          neon=(2, 5, 7), lantern=0.0, park=False,
          glyphs="+:8O", band=None, mullion=False, ground="n", gap=3,
-         alley_lit=False,
          pal="mid", roof="^", whole_floors=False, cjk=False),
     dict(key="c", name="chinatown", weight=3, scale=0.7, lo=8.0, hi=22.0,
          dens=(0.38, 0.78), flat=0.80, hung=0.85, smoke=0.30, bulb=0.55,
          neon=(3, 4, 7), lantern=0.85, park=False,
          glyphs="#8%@", band="=", mullion=False, ground="#", gap=5,
-         alley_lit=False,
          pal="red", roof="~", whole_floors=False, cjk=True),
     dict(key="m", name="market", weight=3, scale=0.65, lo=7.0, hi=20.0,
          dens=(0.32, 0.68), flat=0.55, hung=0.45, smoke=0.35, bulb=0.60,
          neon=(4, 7), lantern=0.70, park=False,
          glyphs="oO0", band=None, mullion=False, ground="A", gap=2,
-         alley_lit=False,
          pal="warm", roof="=", whole_floors=False, cjk=False),
     dict(key="f", name="financial", weight=3, scale=1.9, lo=26.0, hi=64.0,
          dens=(0.05, 0.16), flat=0.0, hung=0.0, smoke=0.08, bulb=0.15,
          neon=None, lantern=0.0, park=False,
          glyphs=":.:", band=None, mullion=False, ground=":", gap=6,
-         alley_lit=False,
          pal="cold", roof="=", whole_floors=True, cjk=False),
     dict(key="k", name="docks", weight=2, scale=0.45, lo=5.0, hi=13.0,
          dens=(0.06, 0.20), flat=0.05, hung=0.05, smoke=0.25, bulb=0.55,
          neon=(4,), lantern=0.0, park=False,
          glyphs="==-", band="-", mullion=False, ground="#", gap=6,
-         alley_lit=False,
          pal="rust", roof="=", whole_floors=False, cjk=False),
-    dict(key="y", name="yokocho", weight=2, scale=0.55, lo=6.0, hi=16.0,
-         dens=(0.30, 0.66), flat=0.70, hung=0.80, smoke=0.40, bulb=0.85,
-         neon=(0, 3, 4, 7), lantern=0.9, park=False,
-         glyphs="#88%", band=None, mullion=False, ground="~", gap=2,
-         alley_lit=True,
-         pal="red", roof="=", whole_floors=False, cjk=False),
     dict(key="p", name="park", weight=2, scale=0.5, lo=5.0, hi=10.0,
          dens=(0.20, 0.45), flat=0.0, hung=0.0, smoke=0.15, bulb=0.20,
          neon=None, lantern=0.0, park=True,
          glyphs="&%", band=None, mullion=False, ground="&", gap=3,
-         alley_lit=False,
          pal="leaf", roof="=", whole_floors=False, cjk=False),
 ]
 
@@ -225,6 +210,15 @@ def district(i, j):
 # noodle house, teahouse, hotpot, dim sum, pharmacy, seafood, roast meats.
 CJK_SIGNS = ["酒吧", "麵館", "茶樓", "飯店", "火鍋", "點心",
              "藥房", "金龍", "海鮮", "包子", "餃子", "燒臘"]
+
+# A yokocho is a back lane you would actually go down: the same one-cell width
+# as any other alley, but lit, and lined with places too small to have a front
+# on the street. Its signs are Japanese for the same reason Chinatown's are
+# Chinese - two or three characters is what fits a vertical sign, and it is
+# what they say: izakaya, yakitori, sushi, oden, ramen, a stall, a quick one
+# standing up.
+JP_SIGNS = ["居酒屋", "焼鳥", "寿司", "おでん", "屋台", "立呑",
+            "焼肉", "串カツ", "もつ煮", "一杯", "酒処", "麺"]
 
 # Set once at startup by asking the terminal rather than assuming - a
 # double-width character on a terminal that cannot place one wrecks the
@@ -745,6 +739,38 @@ def _is_alley(i, j, period, salt, run_salt):
     return _mix(i, j // 6, run_salt) % 5 != 0
 
 
+_yoko_cache = {}
+
+
+def yokocho_at(i, j):
+    """Is this alley cell a lit one.
+
+    Keyed on the same run the alley itself is cut into, so a yokocho is a whole
+    stretch of lane rather than a few cells of one - you turn into it and it
+    stays lit until it ends."""
+    key = i * 1048576 + j
+    hit = _yoko_cache.get(key)
+    if hit is None:
+        _evict(_yoko_cache, 40000)
+        hit = False
+        if is_open(i, j) and not road_at(i, j):
+            if _is_alley(i, j, XP, 91, 211) and _mix(i, j // 6, 331) % 4 == 0:
+                hit = True
+            elif _is_alley(j, i, ZP, 137, 223) and _mix(j, i // 6, 337) % 4 == 0:
+                hit = True
+        _yoko_cache[key] = hit
+    return hit
+
+
+def face_kind(i, j):
+    """What the open cell in front of a facade is: a street, a lit lane, or a
+    dark one. Passed around instead of a bare "is it lit" flag, because a
+    yokocho is lit but is not a street and should not look like one."""
+    if road_at(i, j):
+        return "road"
+    return "yokocho" if yokocho_at(i, j) else None
+
+
 def road_at(i, j):
     """Is this cell part of a proper street - the kind that gets neon?"""
     return _is_road(i, XP, 91) or _is_road(j, ZP, 137)
@@ -795,6 +821,9 @@ FACES = ((-1, 0), (1, 0), (0, -1), (0, 1))     # outward normal of face 0..3
 _lots = {}
 
 
+YOKOCHO_TUBES = {"neon": (0, 3, 4, 7)}      # red and amber, like the lanterns
+
+
 def _tube(rng, d):
     """A neon colour this district is willing to use, stored as the same 0..1
     tone every sign already carries so nothing downstream has to change."""
@@ -803,12 +832,23 @@ def _tube(rng, d):
     return (idx + 0.5) / 8.0
 
 
-def make_face(rng, height, d):
+def make_face(rng, height, d, kind):
     floors = max(1, int(height / FLOOR_H))
     face = {"flat": None, "hung": None, "smoker": None,
             "bulb": None, "escape": False}
 
-    if floors >= 3 and rng.random() < d["flat"]:
+    # A yokocho is signed like a yokocho whatever part of town it runs behind.
+    yoko = kind == "yokocho"
+    words = (JP_SIGNS if (WIDE_OK and yoko)
+             else CJK_SIGNS if (WIDE_OK and d["cjk"] and not yoko)
+             else SIGN_WORDS)
+
+    # Flat signs stay Latin whatever the district. They are painted along the
+    # wall and squashed by perspective to one column a letter, and the facade
+    # path writes single cells with no way to reserve the column a wide glyph
+    # spills into - it would corrupt the row. The vertical hung signs are where
+    # the Chinese and Japanese go, and they are the ones you can read anyway.
+    if floors >= 3 and rng.random() < (0.7 if yoko else d["flat"]):
         text = rng.choice(SIGN_WORDS)
         flicker = rng.random() < 0.25
         face["flat"] = {
@@ -825,8 +865,8 @@ def make_face(rng, height, d):
 
     # Every value is drawn whether or not the sign ends up existing, so that
     # deciding it will not fit cannot shift what the rest of the building rolls.
-    want = rng.random() < d["hung"]
-    text = rng.choice(CJK_SIGNS if (WIDE_OK and d["cjk"]) else SIGN_WORDS)
+    want = rng.random() < (0.8 if yoko else d["hung"])
+    text = rng.choice(words)
     flicker = rng.random() < 0.3
     u = rng.uniform(1.2, CELL - 1.2)
     tone = _tube(rng, d)
@@ -864,9 +904,11 @@ def make_face(rng, height, d):
     # Strung along the frontage: Chinatown and the market over the street,
     # yokocho over the alley, which is most of what tells them apart from a
     # dark back lane at a glance.
-    face["lanterns"] = ({"y": rng.uniform(4.3, 5.6), "tone": _tube(rng, d),
+    face["lanterns"] = ({"y": rng.uniform(4.3, 5.6),
+                         "tone": _tube(rng, YOKOCHO_TUBES if yoko else d),
                          "phase": rng.uniform(0.0, 6.2)}
-                        if rng.random() < d["lantern"] else None)
+                        if rng.random() < (0.9 if yoko else d["lantern"])
+                        else None)
     face["escape"] = rng.random() < 0.4
     face["bin"] = rng.uniform(1.2, CELL - 1.2) if rng.random() < 0.3 else None
     return face
@@ -913,7 +955,12 @@ def lot(i, j):
             "district": d,
             "tree": d["park"],
         }
-        b["faces"] = [make_face(rng, b["height"], d) for _ in range(4)]
+        # What is in front of a face decides what goes on it, and asking is
+        # safe: face_kind() is a pure function of coordinates and never calls
+        # back into lot().
+        b["faces"] = [make_face(rng, b["height"], d,
+                                face_kind(i + FACES[f][0], j + FACES[f][1]))
+                      for f in range(4)]
         # Every so often the slab is not offices at all. Drawn last so that
         # deciding it changes nothing about the building it was going to be.
         # Neither belongs in a park: the cell would be a clump of trees, and
@@ -1129,6 +1176,8 @@ def wall_colour(b, dist, lit, flash=0.0):
         return tone_colour("far" if flash > 0.35 else "dark", b["tone"])
     if dist > 70.0:
         return tone_colour("far", b["tone"])       # everything fogs out alike
+    if lit == "yokocho":
+        return tone_colour("red", b["tone"])       # lanterns, not office light
     return tone_colour(b["district"]["pal"], b["tone"])
 
 
@@ -1336,8 +1385,6 @@ def draw_wall_column(ch, co, v, sx, dist, b, face, u, r_lo, r_hi,
         return draw_casino_column(ch, co, v, sx, dist, b, face, u,
                                   r_lo, r_hi, edge, cont, now)
     d = b["district"]
-    if d["alley_lit"]:
-        lit = True              # a yokocho alley is the lit side, not the back
     scale = v.fy / dist
     trim = tone_colour("dark" if not lit else "far", b["tone"])
     if v.flash > 0.35:
@@ -1497,7 +1544,7 @@ def draw_walls(ch, co, v, now):
                 ch, co, v, sx, dist, b, f, u, r_lo, r_hi,
                 cont is None and sx > 0,
                 cont or (None, None, None, None, ()),
-                road_at(i + nx, j + nz), now))
+                face_kind(i + nx, j + nz), now))
             cover = r_lo if cover is None else min(cover, r_lo)
             if not n:
                 wall_d[sx] = dist
@@ -1610,7 +1657,7 @@ def collect_glow(v, now, wet):
                 _spill(glow, p[0], p[2], 6.0, GOLD_DIM)
                 continue
             fc = b["faces"][f]
-            if road_at(i + nx, j + nz):
+            if face_kind(i + nx, j + nz):
                 if wet < 0.12:
                     continue
                 for s in (fc["flat"], fc["hung"]):
@@ -2093,7 +2140,7 @@ def draw_props(ch, co, v, walls, now, wet):
                 w = face_point(i, j, f, CELL * 0.5, 0.6, 0.0)
                 props.append((_d2(v, w), "lanterns", (fc["lanterns"], i, j, f),
                               w, (nx, nz)))
-            lit = road_at(i + nx, j + nz)
+            lit = face_kind(i + nx, j + nz)
             if lit:
                 if fc["hung"] is not None:
                     s = fc["hung"]
@@ -2663,6 +2710,7 @@ CHEAT_PLACES = [
     ("1", "club", "club"),
     ("2", "casino", "casino"),
     ("3", "dark alley", "alley"),
+    ("y", "lit alley", "yokocho"),
     ("4", "dead end", "deadend"),
     ("5", "crossroads", "crossroads"),
     ("6", "long street", "street"),
@@ -2723,8 +2771,10 @@ def _door_spot(i, j, salt, key):
     return None
 
 
-def _alley_spot(i, j, dead):
+def _alley_spot(i, j, dead, want_lit=None):
     if not is_open(i, j) or road_at(i, j):
+        return None
+    if want_lit is not None and yokocho_at(i, j) != want_lit:
         return None
     if dead:
         # A dead end is an alley cell walled on three sides. Stand in the cell
@@ -2867,8 +2917,10 @@ def find_place(x, z, kind):
             hit = _door_spot(i, j, 911, "casino")
         elif kind == "crossroads":
             hit = _crossroads_spot(i, j)
+        elif kind == "yokocho":
+            hit = _alley_spot(i, j, False, True)
         else:
-            hit = _alley_spot(i, j, kind == "deadend")
+            hit = _alley_spot(i, j, kind == "deadend", False)
         if hit is not None and (hit[0] - x) ** 2 + (hit[1] - z) ** 2 >= skip:
             return hit
     return None

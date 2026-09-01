@@ -427,10 +427,30 @@ standing among, drawn with the same `RAVER_UP`/`RAVER_DOWN` art as the ones queu
 The three depths are what sells it. One band of figures reads as a row of dolls; three at different
 sizes reads as a room with people in it, and costs nothing but three loops.
 
-### Chinese signs, and the one place the grid stops being one char per cell
+### A yokocho is a kind of alley, not a part of town
 
-Chinatown's hung signs are Chinese — 酒吧, 麵館, 火鍋 — and vertical stacking suits them, because
-that is how those signs are actually written. Everything else in the city stays ASCII.
+It was a district for a while and that was wrong: a yokocho is not an area, it is *one lane*, the
+same one-cell width as any other alley but lit and lined with places too small to have a front on
+the street. `yokocho_at()` decides it per alley cell, keyed on the same run the alley itself is cut
+into so a lit lane is a whole stretch rather than a few cells — about one alley in five.
+
+That means **what goes on a facade is not the district's business** when the facade gives onto an
+alley. `face_kind()` returns `"road"`, `"yokocho"` or `None`, and it is passed around in place of the
+old is-it-lit boolean, because a yokocho is lit but is not a street and must not look like one — its
+walls take the red palette whatever district they stand in. A yokocho running behind a residential
+block turns those back faces into bars, which is exactly what one is, so a test that "residential has
+no neon" has to count street frontages only.
+
+### Chinese and Japanese signs, and the one place the grid stops being one char per cell
+
+Chinatown's hung signs are Chinese — 酒吧, 麵館, 火鍋 — and a yokocho's are Japanese — 居酒屋, 焼鳥,
+寿司. Vertical stacking suits both, because that is how those signs are actually written.
+
+**Only the hung signs.** Flat signs stay Latin everywhere, and that is not squeamishness: a flat sign
+is painted along the wall, squashed by perspective to one column a letter, and the facade path writes
+single cells with no way to reserve the column a wide glyph spills into — it corrupts the row. The
+vertical signs are also the only ones you can read at a glance. Everything else in the city stays
+ASCII.
 
 The terminal is not the obstacle; the renderer is. A CJK glyph is **double-width**, and this is a
 strict one-character-per-cell grid, so the cell to the right of one has to be claimed or the blit
