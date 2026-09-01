@@ -2070,8 +2070,14 @@ class Spin:
         return now - self.t0 >= SPIN_TIME + HOLD_TIME
 
 
-def casino_at(x, z):
-    """The casino you are standing in the doorway of, or None."""
+def venue_at(x, z):
+    """The club or casino you are standing in the doorway of, as (kind, dict),
+    or None.
+
+    These two are the only way into a building in the city. Both are a trigger
+    at the door rather than somewhere you walk around inside, because a
+    five-metre cell has no inside to walk around in - what you get instead is a
+    room drawn around you."""
     ci = int(x / CELL + BIG) - BIG
     cj = int(z / CELL + BIG) - BIG
     for i in range(ci - 2, ci + 3):
@@ -2079,16 +2085,22 @@ def casino_at(x, z):
             if is_open(i, j):
                 continue
             b = lot(i, j)
-            if b["casino"] is None:
-                continue
-            f = b["casino"]["door"]
-            nx, nz = FACES[f]
-            if not is_open(i + nx, j + nz):
-                continue
-            p = face_point(i, j, f, b["casino"]["u"], 1.4, 0.0)
-            if ((p[0] - x) ** 2 + (p[2] - z) ** 2) < CASINO_REACH ** 2:
-                return b["casino"]
+            for kind in ("casino", "club"):
+                v = b[kind]
+                if v is None:
+                    continue
+                nx, nz = FACES[v["door"]]
+                if not is_open(i + nx, j + nz):
+                    continue
+                p = face_point(i, j, v["door"], v["u"], 1.4, 0.0)
+                if ((p[0] - x) ** 2 + (p[2] - z) ** 2) < CASINO_REACH ** 2:
+                    return kind, v
     return None
+
+
+def casino_at(x, z):
+    got = venue_at(x, z)
+    return got[1] if got is not None and got[0] == "casino" else None
 
 
 def _text(ch, co, y, x, s, attr):
@@ -2233,6 +2245,7 @@ CHEAT_PLACES = [
     ("7", "back to start", "start"),
     ("8", "far away", "far"),
     ("9", "inside a casino", "inside"),
+    ("0", "inside the club", "clubdoor"),
 ]
 
 
@@ -2359,23 +2372,22 @@ def _far_away(x, z):
     return None
 
 
-def _casino_doorway(x, z):
-    """Standing in the door of the nearest casino, which is what puts you in
-    it. No skipping the one underfoot here: if you are outside a casino and ask
-    to go in, you mean that one."""
+def _doorway(x, z, salt, key):
+    """Standing in the door of the nearest one of these, which is what puts you
+    inside it. No skipping the one underfoot here: if you are outside a club
+    and ask to go in, you mean that club."""
     ci = int(x / CELL + BIG) - BIG
     cj = int(z / CELL + BIG) - BIG
     for i, j in _rings(ci, cj, CHEAT_RINGS):
-        if _mix(i, j, 911) % CLUB_ODDS or is_open(i, j):
+        if _mix(i, j, salt) % CLUB_ODDS or is_open(i, j):
             continue
-        c = lot(i, j)["casino"]
-        if c is None:
+        v = lot(i, j)[key]
+        if v is None:
             continue
-        f = c["door"]
-        nx, nz = FACES[f]
+        nx, nz = FACES[v["door"]]
         if not is_open(i + nx, j + nz):
             continue
-        p = face_point(i, j, f, c["u"], 1.4, 0.0)
+        p = face_point(i, j, v["door"], v["u"], 1.4, 0.0)
         if can_stand(p[0], p[2]):
             return p[0], p[2], math.atan2(-nx, -nz)
     return None
@@ -2392,7 +2404,9 @@ def find_place(x, z, kind):
     if kind == "far":
         return _far_away(x, z)
     if kind == "inside":
-        return _casino_doorway(x, z)
+        return _doorway(x, z, 911, "casino")
+    if kind == "clubdoor":
+        return _doorway(x, z, 909, "club")
 
     ci = int(x / CELL + BIG) - BIG
     cj = int(z / CELL + BIG) - BIG
@@ -2444,6 +2458,120 @@ def draw_cheats(ch, co, note):
                   GOLD if label == "CHEATS" else FLASH)
 
 
+def _beam(ch, co, x0, y0, ang, y1, attr):
+    """One laser, from a moving head on the truss down into the crowd."""
+    height, width = len(ch), len(ch[0])
+    dx = math.tan(ang) * 2.0
+    glyph = "\\" if dx > 0.7 else ("/" if dx < -0.7 else "|")
+    for y in range(y0, min(y1, height)):
+        x = int(round(x0 + (y - y0) * dx))
+        if 0 <= x < width and ch[y][x] == " ":
+            ch[y][x] = glyph
+            co[y][x] = attr
+
+
+def render_rave(club, width, height, now):
+    """Inside the club.
+
+    Every moving thing in here runs off club_light() and the same 134 BPM the
+    front of the building does, so the room you walked into is on the beat you
+    could hear from the pavement. Lights on the truss, lasers sweeping down
+    into it, a crowd that goes up on the kick, and the strobe taking the whole
+    room at the end of every eighth bar."""
+    ch = [[" "] * width for _ in range(height)]
+    co = [[0] * width for _ in range(height)]
+    cx = (width - 1) / 2.0
+    t = now * CLUB_BPM / 60.0 + club["phase"]
+    up = t % 1.0 < 0.5
+    lamp = club_light(now, club)
+    neon = NEON[min(len(NEON) - 1, int(club["tone"] * len(NEON)))]
+
+    if width < 40 or height < 16:
+        _text(ch, co, height // 2, 1, "*** in the club ***",
+              lamp if lamp is not None else neon[1])
+        _text(ch, co, min(height - 1, height // 2 + 2), 1, "s to leave", GOLD_DIM)
+        return ch, co
+
+    truss, floor = 1, height - 1
+
+    # The truss, and the moving heads hanging off it.
+    for x in range(width):
+        ch[truss][x] = "="
+        co[truss][x] = CONCRETE
+    heads = [int(cx + k * width * 0.21) for k in (-2, -1, 0, 1, 2)]
+    for n, hx in enumerate(heads):
+        if 0 <= hx < width:
+            ch[truss][hx] = "V"
+            co[truss][hx] = neon[0] if lamp is not None else neon[1]
+
+    booth = truss + 4
+    if lamp is not None:
+        for n, hx in enumerate(heads):
+            ang = math.sin(t * (0.7 + n * 0.19) + n * 1.7) * 0.95
+            _beam(ch, co, hx, truss + 1, ang, height - 5,
+                  NEON[(n + int(t / 4)) % len(NEON)][0])
+
+    # The booth at the back, and whoever is behind it.
+    _text(ch, co, booth - 1, int(cx - 1), ",-.", CURB)
+    _text(ch, co, booth, int(cx - 7), "[==== DJ ====]",
+          neon[0] if lamp is not None else CONCRETE)
+
+    # Stacks either side, which move when the kick does.
+    for side in (-1, 1):
+        sx = int(cx + side * width * 0.44) - 1
+        for r in range(5):
+            _text(ch, co, booth - 2 + r, sx,
+                  "|OO|" if lamp is None else "[**]",
+                  CONCRETE if lamp is None else neon[0])
+
+    # The crowd, in three depths: heads at the back, bodies in the middle,
+    # and the people you are actually standing among at the front.
+    far = booth + 2
+    for x in range(1, width - 1, 2):
+        if _mix(x, 0, 7) % 3 == 0:
+            continue
+        y = far + _mix(x, 1, 9) % 2 - (1 if up ^ (x % 4 < 2) else 0)
+        if truss < y < height:
+            ch[y][x] = "o" if up ^ (x % 4 < 2) else "."
+            co[y][x] = CURB
+
+    mid = far + 3
+    for x in range(2, width - 5, 7):
+        arms = up ^ (_mix(x, 2, 3) % 2 == 0)
+        for r, line in enumerate(("\\o/", " | ") if arms else ("(o)", "/|\\")):
+            if mid + r < height:
+                _text(ch, co, mid + r, x, line, CURB)
+
+    near = height - 8
+    for k in (-1, 0, 1):
+        px = int(cx + k * width * 0.29) - 2
+        for r, line in enumerate(RAVER_UP if up ^ (k == 0) else RAVER_DOWN):
+            if near + r < floor:
+                _text(ch, co, near + r, px, line, CURB)
+
+    # Glow sticks, up in the air and moving with everyone else.
+    span = max(1, height - far - 5)
+    for k in range(16):
+        m = _mix(k, int(t * 2), 71)
+        gx = int((m & 1023) / 1023.0 * width)
+        gy = far + (m >> 10) % span - (1 if up else 0)
+        if 0 <= gy < floor and 0 <= gx < width:
+            ch[gy][gx] = "*"
+            co[gy][gx] = NEON[(m >> 18) % len(NEON)][0]
+
+    # And the strobe, which takes the room.
+    if lamp == FLASH:
+        for y in range(truss + 1, floor):
+            row, rowc = ch[y], co[y]
+            for x in range(width):
+                if row[x] == " " and _mix(x, y, 41) % 100 < 58:
+                    row[x] = ":"
+                    rowc[x] = FLASH
+
+    _text(ch, co, floor, max(1, int(cx) - 10), "-- the way out (s) --", GOLD_DIM)
+    return ch, co
+
+
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
@@ -2453,6 +2581,7 @@ ARROWS = (curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_UP, curses.KEY_DOWN)
 SKYLINE_HUD = " x=%-6d %s  tab view  arrows/hl walk  HL run  space wander  ` cheats "
 STREET_HUD = " %d,%d %s  tab view  ws walk  ad turn  ,. step  space wander  ` cheats "
 ROULETTE_HUD = " inside the %s casino at %d,%d  -  s walks back out  -  q quit "
+RAVE_HUD = " inside the club at %d,%d  -  s walks back out  -  q quit "
 
 
 def main(stdscr):
@@ -2589,12 +2718,12 @@ def main(stdscr):
         # Walking into a casino doorway is the one way into a building in
         # this city. Walk back out and the wheel goes away; stand there and it
         # deals you another, because that is what a casino is for.
-        house = casino_at(cam_x, cam_z) if street else None
-        if house is None:
+        venue = venue_at(cam_x, cam_z) if street else None
+        if venue is None or venue[0] != "casino":
             wheel = None
         elif wheel is None or (wheel.done(now)
                                and now - wheel_at > CASINO_AGAIN):
-            wheel = Spin(now, house["name"])
+            wheel = Spin(now, venue[1]["name"])
             wheel_at = now + SPIN_TIME + HOLD_TIME
 
         # --- draw ------------------------------------------------------
@@ -2602,6 +2731,9 @@ def main(stdscr):
         if wheel is not None:
             ch, co = render_casino_room(wheel, width, height, now)
             hud = ROULETTE_HUD % (wheel.name, cam_x, cam_z)
+        elif venue is not None and venue[0] == "club":
+            ch, co = render_rave(venue[1], width, height, now)
+            hud = RAVE_HUD % (cam_x, cam_z)
         elif street:
             v = View(cam_x, cam_z, yaw, width, height)
             ch, co, wet = render_street(v, now)

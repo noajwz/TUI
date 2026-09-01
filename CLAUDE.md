@@ -303,8 +303,12 @@ before you can stand far enough back to see the whole building — and on a fift
 never can — so it is a stylised fixed size. Unreadable is worse than the wrong size, which is the
 same call the hung signs make about their rows.
 
-**It is the only building you can enter,** and going in gets you a room rather than a screenful of
-wheel. `render_casino_room()` puts the wheel in the middle of one: a ceiling with the lights chasing
+**It is one of the two buildings you can enter.** `venue_at()` is the trigger for both: stand in a
+doorway and the room is drawn around you. Neither is an interior you walk about in, because a
+five-metre cell has no inside to walk about in — what you get is a room drawn around where you are
+standing, and `s` walks you back out of it.
+
+Going into a casino gets you a room rather than a screenful of wheel. `render_casino_room()` puts the wheel in the middle of one: a ceiling with the lights chasing
 along it, a back wall of slot machines with their reels going, the table with five people round it,
 and the way out behind you. It degrades twice — no room for the furniture gets you the bare wheel,
 no room for that gets you a line of text — because it has to survive a 20x8 window like everything
@@ -325,6 +329,19 @@ low and red next to black the whole way round, and you can watch it turn. `_spin
 random source in this file that is deliberately **not** seeded from position — everything else is a
 hash of where you are so the city is the same city every time, but a wheel you could predict is not
 a wheel.
+
+### Inside the club
+
+`render_rave()` is the club's answer to the casino room, and it runs off `club_light()` and the same
+134 BPM the front of the building does — so the room you walk into is on the beat you could hear
+from the pavement, and the strobe you saw leaking out of the door is the strobe that now has the
+whole room. Truss across the top with the moving heads on it, lasers sweeping down out of them into
+the crowd, the booth at the back, stacks either side that change on the kick, and a crowd in three
+depths: heads at the back, bodies in the middle, and at the front the people you are actually
+standing among, drawn with the same `RAVER_UP`/`RAVER_DOWN` art as the ones queueing outside.
+
+The three depths are what sells it. One band of figures reads as a row of dolls; three at different
+sizes reads as a room with people in it, and costs nothing but three loops.
 
 ### The cheat menu
 
