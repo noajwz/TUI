@@ -273,6 +273,38 @@ random source in this file that is deliberately **not** seeded from position —
 hash of where you are so the city is the same city every time, but a wheel you could predict is not
 a wheel.
 
+### The cheat menu
+
+`` ` `` opens a panel over the live view — over, not instead of, so that weather you change happens
+in front of you. Letters belong to the panel while it is up; the arrow keys do not, so you can still
+walk about with it open.
+
+**It generates nothing.** The city is a pure function of its coordinates, so `find_place()` searches
+for what is already out there and moves the camera to it. `CLUB_ODDS` and the rest are only ever
+read. A jump is exactly equivalent to having walked there, and the test for it censuses every club
+and casino cell in a patch, uses every cheat, and asserts the two sets are identical — the point
+being that a debug tool that quietly made the rare things common would be worse than no tool.
+
+The search rings outward from where you stand and skips anything within `CHEAT_SKIP`, so pressing
+the same key twice hops to the next one rather than landing you back where you are. Order the
+predicates by cost: `_door_spot()` tests the hash **before** `is_open()`, because it throws out 1199
+cells in 1200 for one multiply and means `lot()` — which builds a whole building — is only reached
+on a real hit. That is the difference between 7 ms and something you would notice. `_long_street()`
+is the one that cannot be cheap, since it has to `probe()`, so it stops as soon as it finds a run
+worth looking down.
+
+Two traps worth remembering. Stand a teleport **back** from what it found — three units from a
+facade is a nose against a wall — and make the alley search insist on being able to see somewhere,
+or it happily drops you in a one-cell walled courtyard that is technically an alley and no use at
+all. Both were caught by asserting on `probe()` distance at the landing spot rather than by looking.
+
+Weather is two module-level overrides beside the weather functions: `WEATHER_STEPS` with an index
+that `rain_intensity()` consults, and `_forced_strike`, which `lightning()` checks before its own
+schedule so a strike can be had on demand even when dry. The flash envelope came out into
+`_strike_flash()` so the one you asked for is the same strike the storm would have had. A test
+compares 400,000 samples of both functions on `auto` against the formulas they replaced and requires
+zero drift.
+
 ### Testing it
 
 Stub the module globals `init_colors()` would have set (`PALETTES`, `NEON`, `STAR`, `CURB`, `RAIN`,

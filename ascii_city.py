@@ -1621,9 +1621,34 @@ def _d2(v, w):
 # Weather
 # ---------------------------------------------------------------------------
 
+# The cheat menu can pin the weather. Index 0 hands it back to the sky.
+WEATHER_STEPS = [("auto", None), ("dry", 0.0), ("drizzle", 0.18),
+                 ("rain", 0.5), ("downpour", 0.95)]
+_weather_i = 0
+_forced_strike = None       # when a strike was called for, rather than due
+
+
+def cycle_weather():
+    global _weather_i
+    _weather_i = (_weather_i + 1) % len(WEATHER_STEPS)
+    return WEATHER_STEPS[_weather_i][0]
+
+
+def weather_name():
+    return WEATHER_STEPS[_weather_i][0]
+
+
+def force_strike(now):
+    global _forced_strike
+    _forced_strike = now
+
+
 def rain_intensity(now):
     """It comes and goes. Three slow waves that never quite line up, so the
     weather swells to a downpour, eases off, and now and then stops."""
+    lock = WEATHER_STEPS[_weather_i][1]
+    if lock is not None:
+        return lock
     v = (0.42
          + 0.42 * math.sin(now / 41.0)
          + 0.26 * math.sin(now / 13.7 + 1.2)
@@ -1631,13 +1656,32 @@ def rain_intensity(now):
     return max(0.0, min(1.0, v))
 
 
+def _strike_flash(t, twice):
+    """The shape of one strike: two or three sub-flashes a tenth of a second
+    apart with an afterglow behind them, because a single clean flash reads as
+    a rendering bug. Shared, so a strike you asked for is the same strike as
+    one the storm was going to have anyway."""
+    if not 0.0 <= t < 1.3:
+        return 0.0
+    b = 0.0
+    for n, (delay, amp) in enumerate(((0.0, 1.0), (0.11, 0.72), (0.27, 0.45))):
+        if n == 2 and twice:
+            break
+        if 0.0 <= t - delay < 0.07:
+            b = max(b, amp)
+    return max(b, 0.3 * math.exp(-(t - 0.3) * 4.0) if t > 0.3 else 0.0)
+
+
 def lightning(now, wet):
     """How bright the sky is this instant, 0..1.
 
-    Storms only happen in heavy rain, and even then only one slot in three has
+    Storms only happen in heavy rain, and even then only one slot in seven has
     a strike in it, so this is quiet for minutes at a time - which is the whole
-    point of it. A strike is two or three sub-flashes a tenth of a second apart
-    with an afterglow, because one clean flash reads as a rendering bug."""
+    point of it."""
+    if _forced_strike is not None:
+        b = _strike_flash(now - _forced_strike, False)
+        if b:
+            return b                    # asked for, so it comes even when dry
     if wet < STRIKE_WET:
         return 0.0
     k = int(now / STRIKE_SLOT)
@@ -1645,16 +1689,7 @@ def lightning(now, wet):
     if m % STRIKE_ODDS:
         return 0.0
     at = k * STRIKE_SLOT + ((m >> 8) & 1023) / 1023.0 * (STRIKE_SLOT - 3.0)
-    t = now - at
-    if not 0.0 <= t < 1.3:
-        return 0.0
-    b = 0.0
-    for n, (delay, amp) in enumerate(((0.0, 1.0), (0.11, 0.72), (0.27, 0.45))):
-        if n == 2 and (m >> 20) & 1:
-            break                       # some of them only flicker twice
-        if 0.0 <= t - delay < 0.07:
-            b = max(b, amp)
-    return max(b, 0.3 * math.exp(-(t - 0.3) * 4.0) if t > 0.3 else 0.0)
+    return _strike_flash(now - at, bool((m >> 20) & 1))
 
 
 def club_light(now, club):
@@ -1977,12 +2012,224 @@ def render_roulette(spin, width, height, now):
     return ch, co
 
 
+# ===========================================================================
+# CHEATS
+#
+# None of this generates anything. The city is a pure function of its
+# coordinates, so the menu searches for what is already out there and moves you
+# to it: a club is exactly as rare after you have teleported to one as it was
+# before, and CLUB_ODDS is only ever read, never leaned on. A jump is precisely
+# equivalent to having walked there.
+# ===========================================================================
+
+CHEAT_KEY = ord("`")
+CHEAT_SKIP = 40.0      # ignore what is already underfoot, so a repeat moves on
+CHEAT_RINGS = 200      # cells of search before giving up and saying so
+
+CHEAT_PLACES = [
+    ("1", "club", "club"),
+    ("2", "casino", "casino"),
+    ("3", "dark alley", "alley"),
+    ("4", "dead end", "deadend"),
+    ("5", "crossroads", "crossroads"),
+    ("6", "long street", "street"),
+    ("7", "back to start", "start"),
+    ("8", "far away", "far"),
+]
+
+
+def _rings(ci, cj, limit):
+    """Cells outward from (ci, cj), nearest ring first."""
+    yield ci, cj
+    for r in range(1, limit):
+        for d in range(-r, r):
+            yield ci + d, cj - r
+            yield ci + r, cj + d
+            yield ci - d, cj + r
+            yield ci - r, cj - d
+
+
+def best_view(x, z):
+    """Whichever way you can see furthest from here, and how far that is."""
+    best, ang = -1.0, 0.0
+    for k in range(8):
+        a = k * math.tau / 8.0
+        d = probe(x, z, a, 45.0)
+        if d > best:
+            best, ang = d, a
+    return ang, best
+
+
+def best_yaw(x, z):
+    return best_view(x, z)[0]
+
+
+def _door_spot(i, j, salt, key):
+    """A club or a casino, and somewhere to stand looking at its door.
+
+    The hash is tested before is_open(), because it throws out 1199 cells in
+    1200 for the price of one multiply, and lot() - which builds a whole
+    building - is only ever reached on an actual hit."""
+    if _mix(i, j, salt) % CLUB_ODDS or is_open(i, j):
+        return None
+    place = lot(i, j)[key]
+    if place is None:
+        return None
+    f = place["door"]
+    nx, nz = FACES[f]
+    if not is_open(i + nx, j + nz):
+        return None
+    # Far enough back to see the whole front of it. Standing on the doorstep
+    # puts your nose against a facade and shows you nothing.
+    for back in (9.0, 7.0, 11.0, 5.5, 13.0, 4.0, 3.0):
+        p = face_point(i, j, f, place["u"], back, 0.0)
+        if can_stand(p[0], p[2]):
+            return p[0], p[2], math.atan2(-nx, -nz)
+    return None
+
+
+def _alley_spot(i, j, dead):
+    if not is_open(i, j) or road_at(i, j):
+        return None
+    if dead:
+        # A dead end is an alley cell walled on three sides. Stand in the cell
+        # in front of it and look in, which is the view worth having.
+        ways = [(a, b) for a, b in ((i - 1, j), (i + 1, j), (i, j - 1), (i, j + 1))
+                if is_open(a, b)]
+        if len(ways) != 1:
+            return None
+        a, b = ways[0]
+        x, z = (a + 0.5) * CELL, (b + 0.5) * CELL
+        if not can_stand(x, z):
+            return None
+        return x, z, math.atan2(float(i - a), float(j - b))
+    x, z = (i + 0.5) * CELL, (j + 0.5) * CELL
+    if not can_stand(x, z):
+        return None
+    # A one-cell courtyard walled in on every side is technically an alley and
+    # is no use to look at, so insist on being able to see down it.
+    yaw, clear = best_view(x, z)
+    if clear < 9.0:
+        return None
+    return x, z, yaw
+
+
+def _crossroads_spot(i, j):
+    if not (_is_road(i, XP, 91) and _is_road(j, ZP, 137)) or not is_open(i, j):
+        return None
+    x, z = (i + 0.5) * CELL, (j + 0.5) * CELL
+    if not can_stand(x, z):
+        return None
+    return x, z, best_yaw(x, z)
+
+
+def _long_street(x, z):
+    """The longest clear run of street nearby. Stops as soon as it finds one
+    worth looking down, because probing every road cell for a hundred units is
+    far more work than the rest of the menu put together."""
+    ci = int(x / CELL + BIG) - BIG
+    cj = int(z / CELL + BIG) - BIG
+    best = None
+    for i, j in _rings(ci, cj, 26):
+        if not (is_open(i, j) and road_at(i, j)):
+            continue
+        px, pz = (i + 0.5) * CELL, (j + 0.5) * CELL
+        if (px - x) ** 2 + (pz - z) ** 2 < CHEAT_SKIP ** 2 or not can_stand(px, pz):
+            continue
+        for k in range(4):
+            a = k * math.tau / 4.0
+            run = probe(px, pz, a, 110.0)
+            if best is None or run > best[0]:
+                best = (run, px, pz, a)
+        if best is not None and best[0] >= 90.0:
+            break
+    return None if best is None else (best[1], best[2], best[3])
+
+
+def _far_away(x, z):
+    a = _mix(int(x), int(z), 733)
+    ang = (a & 0xFFFF) / 65535.0 * math.tau
+    dist = 3000.0 + (a >> 16) % 5000
+    ci = int((x + math.sin(ang) * dist) / CELL + BIG) - BIG
+    cj = int((z + math.cos(ang) * dist) / CELL + BIG) - BIG
+    for i, j in _rings(ci, cj, 60):
+        if not is_open(i, j):
+            continue
+        px, pz = (i + 0.5) * CELL, (j + 0.5) * CELL
+        if can_stand(px, pz):
+            return px, pz, best_yaw(px, pz)
+    return None
+
+
+def find_place(x, z, kind):
+    """Somewhere of this kind to stand, and which way to face. None if there is
+    none within reach - the panel says so rather than the search running on."""
+    if kind == "start":
+        sx, sz = start_position()
+        return sx, sz, best_yaw(sx, sz)
+    if kind == "street":
+        return _long_street(x, z)
+    if kind == "far":
+        return _far_away(x, z)
+
+    ci = int(x / CELL + BIG) - BIG
+    cj = int(z / CELL + BIG) - BIG
+    skip = CHEAT_SKIP ** 2
+    for i, j in _rings(ci, cj, CHEAT_RINGS):
+        if kind == "club":
+            hit = _door_spot(i, j, 909, "club")
+        elif kind == "casino":
+            hit = _door_spot(i, j, 911, "casino")
+        elif kind == "crossroads":
+            hit = _crossroads_spot(i, j)
+        else:
+            hit = _alley_spot(i, j, kind == "deadend")
+        if hit is not None and (hit[0] - x) ** 2 + (hit[1] - z) ** 2 >= skip:
+            return hit
+    return None
+
+
+def draw_cheats(ch, co, note):
+    """The panel, drawn over the live frame rather than instead of it, so that
+    what you change to the weather happens in front of you."""
+    height, width = len(ch), len(ch[0])
+    body = [("", "CHEATS")]
+    body += [(k, name) for k, name, _ in CHEAT_PLACES]
+    body += [("", ""), ("w", "weather: " + weather_name()), ("L", "strike now"),
+             ("", ""), ("`", "close")]
+    if note:
+        body += [("", note)]
+
+    w, h = 23, len(body) + 2
+    if width < w + 4 or height < h + 2:
+        return                          # no room; the city is more use
+    x0, y0 = 2, 1
+    for r in range(h):
+        for c in range(w):
+            corner = r in (0, h - 1) and c in (0, w - 1)
+            side = r in (0, h - 1) or c in (0, w - 1)
+            ch[y0 + r][x0 + c] = ("+" if corner else
+                                  "-" if r in (0, h - 1) else
+                                  "|" if side else " ")
+            co[y0 + r][x0 + c] = GOLD_DIM if side else 0
+    for r, (k, label) in enumerate(body):
+        y = y0 + 1 + r
+        if k:
+            _text(ch, co, y, x0 + 2, k, GOLD)
+            _text(ch, co, y, x0 + 4, label[:w - 6], HUD)
+        elif label:
+            _text(ch, co, y, x0 + 2, label[:w - 4],
+                  GOLD if label == "CHEATS" else FLASH)
+
+
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 
-SKYLINE_HUD = " x=%-6d %s  tab view  arrows/hl walk  HL run  space wander  q quit "
-STREET_HUD = " %d,%d %s  tab view  ws walk  ad turn  ,. step  space wander  q quit "
+ARROWS = (curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_UP, curses.KEY_DOWN)
+
+SKYLINE_HUD = " x=%-6d %s  tab view  arrows/hl walk  HL run  space wander  ` cheats "
+STREET_HUD = " %d,%d %s  tab view  ws walk  ad turn  ,. step  space wander  ` cheats "
 ROULETTE_HUD = " %s  -  you are inside at %d,%d  -  s walks back out  -  q quit "
 
 
@@ -2003,6 +2250,8 @@ def main(stdscr):
     blocked = False             # did the last step run into something
     wheel = None                # the roulette, while you stand in a casino
     wheel_at = 0.0
+    cheats = False              # is the cheat panel up
+    note = ""                   # and what did it last do
     autopilot = False
     frame_time = 1.0 / FPS
 
@@ -2012,15 +2261,45 @@ def main(stdscr):
         # --- input -----------------------------------------------------
         key = stdscr.getch()
         while key != -1:
-            if key in (ord("q"), 27):
+            if key == curses.KEY_RESIZE:
+                _cache.clear()
+            elif cheats and key not in ARROWS:
+                # The letters belong to the panel while it is up. The arrows
+                # do not, so you can still walk about with it open, which is
+                # the whole reason it is drawn over the view.
+                if key in (CHEAT_KEY, 27):
+                    cheats, note = False, ""
+                elif key == ord("q"):
+                    return
+                elif key == ord("w"):
+                    note = "weather: " + cycle_weather()
+                elif key == ord("L"):
+                    force_strike(now)
+                    note = "lightning"
+                else:
+                    for k, name, kind in CHEAT_PLACES:
+                        if key != ord(k):
+                            continue
+                        spot = find_place(cam_x, cam_z, kind)
+                        if spot is None:
+                            note = "no " + name + " near"
+                        else:
+                            cam_x, cam_z, yaw = spot
+                            fwd = side = spin = steer = 0.0
+                            autopilot = False
+                            wheel = None
+                            street = True
+                            note = "-> " + name
+                        break
+            elif key in (ord("q"), 27):
                 return
+            elif key == CHEAT_KEY:
+                cheats, note = True, ""
             elif key in (ord("\t"), ord("v")):
                 street = not street
                 sky_v = fwd = side = spin = 0.0
             elif key == ord(" "):
                 autopilot = not autopilot
-            elif key == curses.KEY_RESIZE:
-                _cache.clear()
             elif street:
                 if key in (curses.KEY_UP, ord("w"), ord("W")):
                     fwd = WALK * (RUN_MULTIPLIER if key == ord("W") else 1.0)
@@ -2108,6 +2387,8 @@ def main(stdscr):
         else:
             ch, co = render_skyline(sky_x, width, height, now)
             hud = SKYLINE_HUD % (sky_x, weather_word(rain_intensity(now)))
+        if cheats:
+            draw_cheats(ch, co, note)
 
         stdscr.erase()
         for y in range(height):
