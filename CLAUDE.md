@@ -427,6 +427,37 @@ standing among, drawn with the same `RAVER_UP`/`RAVER_DOWN` art as the ones queu
 The three depths are what sells it. One band of figures reads as a row of dolls; three at different
 sizes reads as a room with people in it, and costs nothing but three loops.
 
+### Chinese signs, and the one place the grid stops being one char per cell
+
+Chinatown's hung signs are Chinese — 酒吧, 麵館, 火鍋 — and vertical stacking suits them, because
+that is how those signs are actually written. Everything else in the city stays ASCII.
+
+The terminal is not the obstacle; the renderer is. A CJK glyph is **double-width**, and this is a
+strict one-character-per-cell grid, so the cell to the right of one has to be claimed or the blit
+loop paints straight over the character's far half. `put_wide()` writes the glyph, blanks the next
+cell and records the position in `v.wide`; the blit loop steps over two columns for those and uses
+`addstr` rather than `addch`.
+
+Three things that only turned up by testing it:
+
+- **Verify at blit time, don't trust the reservation.** A later pass — rain, usually — can paint
+  over the glyph after its column was claimed, and stepping over two cells for a leftover
+  reservation swallows a column of the picture. The loop checks `is_wide()` on what is actually
+  there.
+- **Two signs can overlap on the same row.** That leaves two double-width glyphs one column apart
+  and the blit loop eats the second one whole. `put_wide()` clears anything already claiming those
+  columns, so the nearer sign — drawn last — wins.
+- **Ask the terminal, don't assume.** `wide_chars_work()` writes one into a corner at startup and
+  checks whether ncurses moved the cursor two columns, the same way `termimage` asks about the
+  graphics protocol rather than reading `$TERM`. A curses built without wide support moves it one,
+  and every row with a sign in it would come out a column short. Without support, Chinatown falls
+  back to the Latin word list, and it draws from the same `rng` call either way so the city itself
+  is identical on both.
+
+Testing this through a pty has a trap of its own: writing `\x1b[C` for an arrow key can be read as a
+bare ESC, which quits. Two dead-end investigations started that way — the program was fine and the
+harness was killing it.
+
 ### The cheat menu
 
 **Anything new in the city gets an entry here, in the same commit that adds it.** This is a standing

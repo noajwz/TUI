@@ -24,6 +24,7 @@ import curses
 import math
 import random
 import time
+import unicodedata
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -144,55 +145,55 @@ DISTRICTS = [
          neon=None, lantern=0.0, park=False,
          glyphs="08XZ*%@#", band=None, mullion=False, ground="#", gap=4,
          alley_lit=False,
-         pal="near", roof="=", whole_floors=False),
+         pal="near", roof="=", whole_floors=False, cjk=False),
     dict(key="r", name="residential", weight=5, scale=0.45, lo=6.0, hi=14.0,
          dens=(0.34, 0.66), flat=0.0, hung=0.0, smoke=0.18, bulb=0.30,
          neon=None, lantern=0.0, park=False,
          glyphs="0oo.", band="-", mullion=False, ground="n", gap=3,
          alley_lit=False,
-         pal="warm", roof="=", whole_floors=False),
+         pal="warm", roof="=", whole_floors=False, cjk=False),
     dict(key="o", name="old town", weight=4, scale=0.6, lo=7.0, hi=18.0,
          dens=(0.30, 0.62), flat=0.15, hung=0.20, smoke=0.30, bulb=0.40,
          neon=(2, 5, 7), lantern=0.0, park=False,
          glyphs="+:8O", band=None, mullion=False, ground="n", gap=3,
          alley_lit=False,
-         pal="mid", roof="^", whole_floors=False),
+         pal="mid", roof="^", whole_floors=False, cjk=False),
     dict(key="c", name="chinatown", weight=3, scale=0.7, lo=8.0, hi=22.0,
          dens=(0.38, 0.78), flat=0.80, hung=0.85, smoke=0.30, bulb=0.55,
          neon=(3, 4, 7), lantern=0.85, park=False,
          glyphs="#8%@", band="=", mullion=False, ground="#", gap=5,
          alley_lit=False,
-         pal="red", roof="~", whole_floors=False),
+         pal="red", roof="~", whole_floors=False, cjk=True),
     dict(key="m", name="market", weight=3, scale=0.65, lo=7.0, hi=20.0,
          dens=(0.32, 0.68), flat=0.55, hung=0.45, smoke=0.35, bulb=0.60,
          neon=(4, 7), lantern=0.70, park=False,
          glyphs="oO0", band=None, mullion=False, ground="A", gap=2,
          alley_lit=False,
-         pal="warm", roof="=", whole_floors=False),
+         pal="warm", roof="=", whole_floors=False, cjk=False),
     dict(key="f", name="financial", weight=3, scale=1.9, lo=26.0, hi=64.0,
          dens=(0.05, 0.16), flat=0.0, hung=0.0, smoke=0.08, bulb=0.15,
          neon=None, lantern=0.0, park=False,
          glyphs=":.:", band=None, mullion=False, ground=":", gap=6,
          alley_lit=False,
-         pal="cold", roof="=", whole_floors=True),
+         pal="cold", roof="=", whole_floors=True, cjk=False),
     dict(key="k", name="docks", weight=2, scale=0.45, lo=5.0, hi=13.0,
          dens=(0.06, 0.20), flat=0.05, hung=0.05, smoke=0.25, bulb=0.55,
          neon=(4,), lantern=0.0, park=False,
          glyphs="==-", band="-", mullion=False, ground="#", gap=6,
          alley_lit=False,
-         pal="rust", roof="=", whole_floors=False),
+         pal="rust", roof="=", whole_floors=False, cjk=False),
     dict(key="y", name="yokocho", weight=2, scale=0.55, lo=6.0, hi=16.0,
          dens=(0.30, 0.66), flat=0.70, hung=0.80, smoke=0.40, bulb=0.85,
          neon=(0, 3, 4, 7), lantern=0.9, park=False,
          glyphs="#88%", band=None, mullion=False, ground="~", gap=2,
          alley_lit=True,
-         pal="red", roof="=", whole_floors=False),
+         pal="red", roof="=", whole_floors=False, cjk=False),
     dict(key="p", name="park", weight=2, scale=0.5, lo=5.0, hi=10.0,
          dens=(0.20, 0.45), flat=0.0, hung=0.0, smoke=0.15, bulb=0.20,
          neon=None, lantern=0.0, park=True,
          glyphs="&%", band=None, mullion=False, ground="&", gap=3,
          alley_lit=False,
-         pal="leaf", roof="=", whole_floors=False),
+         pal="leaf", roof="=", whole_floors=False, cjk=False),
 ]
 
 DISTRICT_PICK = [n for n, d in enumerate(DISTRICTS) for _ in range(d["weight"])]
@@ -218,6 +219,17 @@ def district_at(i, j):
 
 def district(i, j):
     return DISTRICTS[district_at(i, j)]
+
+# Chinatown's signs, if the terminal can draw them. Two or three characters
+# each, which is what fits a vertical sign and what they actually say: bar,
+# noodle house, teahouse, hotpot, dim sum, pharmacy, seafood, roast meats.
+CJK_SIGNS = ["酒吧", "麵館", "茶樓", "飯店", "火鍋", "點心",
+             "藥房", "金龍", "海鮮", "包子", "餃子", "燒臘"]
+
+# Set once at startup by asking the terminal rather than assuming - a
+# double-width character on a terminal that cannot place one wrecks the
+# alignment of the whole row.
+WIDE_OK = False
 
 SIGN_WORDS = [
     "BAR", "OPEN", "HOTEL", "MOTEL", "PHO", "RAMEN", "SUSHI", "COFFEE",
@@ -359,6 +371,29 @@ def init_colors():
     GRASS = made["grass"]
     BARK = made["bark"]
     ROOF = made["roof"] | curses.A_BOLD
+
+
+def wide_chars_work(stdscr):
+    """Whether this terminal and this curses can place a double-width glyph.
+
+    Asked, not assumed, the same way termimage asks about the graphics protocol
+    rather than guessing from $TERM: write one into a corner and see whether
+    ncurses moves the cursor on two columns instead of one. A curses built
+    without wide character support moves it one, and every row with a sign in
+    it would come out a column short."""
+    try:
+        h = stdscr.getmaxyx()[0]
+        stdscr.addstr(h - 1, 0, CJK_SIGNS[0][0])
+        ok = stdscr.getyx()[1] == 2
+        stdscr.move(h - 1, 0)
+        stdscr.clrtoeol()
+        return ok
+    except Exception:
+        return False
+
+
+def is_wide(ch):
+    return unicodedata.east_asian_width(ch) in ("W", "F")
 
 
 def tone_colour(name, tone):
@@ -791,7 +826,7 @@ def make_face(rng, height, d):
     # Every value is drawn whether or not the sign ends up existing, so that
     # deciding it will not fit cannot shift what the rest of the building rolls.
     want = rng.random() < d["hung"]
-    text = rng.choice(SIGN_WORDS)
+    text = rng.choice(CJK_SIGNS if (WIDE_OK and d["cjk"]) else SIGN_WORDS)
     flicker = rng.random() < 0.3
     u = rng.uniform(1.2, CELL - 1.2)
     tone = _tube(rng, d)
@@ -961,6 +996,7 @@ class View:
         self.cx = (width - 1) / 2.0
         self.fx = self.cx / PLANE
         self.fy = self.fx * 0.5
+        self.wide = set()       # cells holding a double-width glyph
         self.wet = 0.0          # how hard it is raining, 0..1
         self.flash = 0.0        # how bright the lightning is this instant
 
@@ -1767,6 +1803,31 @@ def put_cell(ch, co, v, walls, sx, sy, dist, glyph, attr):
     co[sy][sx] = attr
 
 
+def put_wide(ch, co, v, walls, sx, sy, dist, glyph, attr):
+    """A double-width glyph, and the column it spills into.
+
+    The cell to the right is claimed as well - blanked, and remembered in
+    v.wide - because the blit loop writes left to right and would otherwise
+    paint straight over the right half of the character."""
+    if not (0 <= sx < v.width - 1 and 0 <= sy < v.height):
+        return
+    if hidden(walls, sx, sy, dist) or hidden(walls, sx + 1, sy, dist):
+        return
+    # Two signs can overlap on the same row. Whichever is drawn last is the
+    # nearer one and should win, so clear anything already claiming these
+    # columns - leaving it would put two double-width glyphs one column apart
+    # and the blit loop would swallow the second one whole.
+    for dx in (-1, 0, 1):
+        at = sx + dx
+        if at >= 0 and (sy, at) in v.wide:
+            v.wide.discard((sy, at))
+            ch[sy][at] = " "
+    ch[sy][sx] = glyph
+    co[sy][sx] = attr
+    ch[sy][sx + 1] = " "
+    v.wide.add((sy, sx))
+
+
 def put_point(ch, co, v, walls, x, y, z, glyph, attr):
     pr = v.project(x, y, z)
     if pr is not None:
@@ -1945,6 +2006,7 @@ def draw_hung_sign(ch, co, v, walls, s, world, normal, now, wet):
         return
     sx, top, dist = int(round(pr[0])), int(round(pr[1])), pr[2]
     step = max(1, int(round(SIGN_STEP * v.fy / dist)))
+    wide = any(is_wide(c) for c in s["text"])
     dark = NEON[min(len(NEON) - 1, int(s["tone"] * len(NEON)))][1]
 
     foot = s["top"] - SIGN_STEP * (len(s["text"]) - 1)
@@ -1957,13 +2019,19 @@ def draw_hung_sign(ch, co, v, walls, s, world, normal, now, wet):
                           int(round(pb[1])), pt[2]))
     # Edge-on the two sides land in the same column; drawing them then would
     # only bury the letters behind their own frame.
-    if len(edges) == 2 and abs(edges[0][0] - edges[1][0]) > 1:
+    # A wide glyph needs more room between the brackets than a letter does,
+    # or the frame lands on top of the character it is framing.
+    if len(edges) == 2 and abs(edges[0][0] - edges[1][0]) > (3 if wide else 1):
         for ex, y0, y1, ed in edges:
             for y in range(min(y0, y1), max(y0, y1) + 1):
                 put_cell(ch, co, v, walls, ex, y, ed, "|", dark)
     for i, letter in enumerate(s["text"]):
         attr = neon_attr(s, i, now)
-        put_cell(ch, co, v, walls, sx, top + i * step, dist, letter, attr)
+        if is_wide(letter):
+            # Centre it on the bracket rather than hanging it off to the right.
+            put_wide(ch, co, v, walls, sx - 1, top + i * step, dist, letter, attr)
+        else:
+            put_cell(ch, co, v, walls, sx, top + i * step, dist, letter, attr)
         if wet > 0.15:
             y = s["top"] - i * 1.15
             ry = v.reflect_row(y, dist) + 2.0 * wet * math.sin(now * 2.3 + i)
@@ -2974,7 +3042,9 @@ RAVE_HUD = " inside the club at %d,%d  -  s walks back out  -  q quit "
 
 
 def main(stdscr):
+    global WIDE_OK
     init_colors()
+    WIDE_OK = wide_chars_work(stdscr)
     curses.curs_set(0)          # hide the cursor
     stdscr.nodelay(True)        # don't block waiting for a keypress
     stdscr.keypad(True)         # decode arrow keys into KEY_LEFT / KEY_RIGHT
@@ -3140,20 +3210,35 @@ def main(stdscr):
         if cheats:
             draw_cheats(ch, co, note)
 
+        wide = v.wide if (street and wheel is None and venue is None) else ()
         stdscr.erase()
         for y in range(height):
             row_ch, row_co = ch[y], co[y]
-            for x in range(width):
+            x = 0
+            while x < width:
                 c = row_ch[x]
-                if c == " ":
+                # The very last cell of the screen can't be written to, and
+                # a wide glyph needs the one after it as well.
+                corner = y == height - 1 and x >= width - 2
+                # Trust but verify: a later pass - rain, usually - can paint
+                # over the glyph after its column was claimed, and stepping
+                # over two cells for a leftover reservation would swallow a
+                # column of the picture.
+                if (y, x) in wide and not corner and is_wide(c):
+                    # A double-width glyph owns the column after it as well, so
+                    # step over that one rather than painting into its far half.
+                    try:
+                        stdscr.addstr(y, x, c, row_co[x])
+                    except curses.error:
+                        pass
+                    x += 2
                     continue
-                # The very last cell of the screen can't be written to.
-                if y == height - 1 and x == width - 1:
-                    continue
-                try:
-                    stdscr.addch(y, x, c, row_co[x])
-                except curses.error:
-                    pass
+                if c != " " and not (y == height - 1 and x == width - 1):
+                    try:
+                        stdscr.addch(y, x, c, row_co[x])
+                    except curses.error:
+                        pass
+                x += 1
 
         try:
             stdscr.addstr(0, 0, hud[:width - 1], HUD)
