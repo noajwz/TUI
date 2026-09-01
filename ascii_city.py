@@ -84,9 +84,15 @@ RAIN_SPEED = 24.0      # world units per second
 RAIN_STREAK = 0.028    # seconds of fall drawn as one streak
 
 # --- lightning ---
-STRIKE_SLOT = 34.0     # seconds per slot in which a strike might happen
-STRIKE_ODDS = 7        # and only one slot in this many has one
-STRIKE_WET = 0.62      # it has to be coming down this hard for a storm at all
+# A storm is a weather in its own right, not something that happens to a
+# downpour. It is the rarest of them by some way - a few percent of the time -
+# and while one is overhead it is violent: it brings its own rain and the
+# strikes come every couple of seconds.
+STORM_SLOT = 210.0     # seconds per slot in which a storm might blow up
+STORM_ODDS = 6         # and only one slot in this many has one
+STORM_SHORT = 35.0     # how long the briefest storm lasts
+STORM_LONG = 80.0      # and the longest
+STRIKE_EVERY = 2.8     # seconds between strikes once one is overhead
 
 # --- the club, and the casino across town ---
 CLUB_ODDS = 1200       # one building in this many is one, and it is unmarked
@@ -1190,7 +1196,7 @@ def draw_flash(ch, co, v, walls, flash):
     if flash < 0.05:
         return
     walls_d, walls_top, walls_base = walls
-    dens = int(flash * 55)
+    dens = int(flash * 66)
     for sx in range(v.width):
         if walls_d[sx] is None:
             continue
@@ -1200,7 +1206,7 @@ def draw_flash(ch, co, v, walls, flash):
             if ch[y][sx] == " " and _mix(sx, y, 97) % 100 < dens:
                 ch[y][sx] = ":"
                 co[y][sx] = FLASH
-    ground = int(flash * 30)
+    ground = int(flash * 38)
     for y in range(v.horizon + 1, v.height):
         row, rowc = ch[y], co[y]
         for sx in range(v.width):
@@ -1720,8 +1726,10 @@ def _d2(v, w):
 # ---------------------------------------------------------------------------
 
 # The cheat menu can pin the weather. Index 0 hands it back to the sky.
-WEATHER_STEPS = [("auto", None), ("dry", 0.0), ("drizzle", 0.18),
-                 ("rain", 0.5), ("downpour", 0.95)]
+# (name, rain to pin it at or None to let the sky decide, is it a storm)
+WEATHER_STEPS = [("auto", None, False), ("dry", 0.0, False),
+                 ("drizzle", 0.18, False), ("rain", 0.5, False),
+                 ("downpour", 0.95, False), ("storm", 0.98, True)]
 _weather_i = 0
 _forced_strike = None       # when a strike was called for, rather than due
 
@@ -1741,9 +1749,38 @@ def force_strike(now):
     _forced_strike = now
 
 
+def storm_window(now):
+    """(start, length) of the storm overhead, or None.
+
+    Storms sit on a slot the way strikes used to, but a long one: one slot in
+    six has a storm in it and a slot is three and a half minutes, so they come
+    round about every twenty. A storm can run past the end of its own slot, so
+    the slot before this one has to be asked as well."""
+    k = int(now / STORM_SLOT)
+    for kk in (k, k - 1):
+        m = _mix(kk, 0, 617)
+        if m % STORM_ODDS:
+            continue
+        start = kk * STORM_SLOT + ((m >> 8) & 1023) / 1023.0 * STORM_SLOT * 0.5
+        length = STORM_SHORT + ((m >> 19) & 255) / 255.0 * (STORM_LONG - STORM_SHORT)
+        if start <= now < start + length:
+            return start, length
+    return None
+
+
+def storming(now):
+    """Is there a storm overhead - either because the sky says so, or because
+    the cheat menu is holding one there."""
+    lock, forced = WEATHER_STEPS[_weather_i][1:]
+    if lock is not None:
+        return forced
+    return storm_window(now) is not None
+
+
 def rain_intensity(now):
     """It comes and goes. Three slow waves that never quite line up, so the
-    weather swells to a downpour, eases off, and now and then stops."""
+    weather swells to a downpour, eases off, and now and then stops - and a
+    storm brings its own rain regardless of where those waves happen to be."""
     lock = WEATHER_STEPS[_weather_i][1]
     if lock is not None:
         return lock
@@ -1751,6 +1788,12 @@ def rain_intensity(now):
          + 0.42 * math.sin(now / 41.0)
          + 0.26 * math.sin(now / 13.7 + 1.2)
          + 0.13 * math.sin(now / 5.3 + 2.6))
+    storm = storm_window(now)
+    if storm is not None:
+        start, length = storm
+        t = now - start
+        edge = min(1.0, t / 7.0, (length - t) / 7.0)    # it rolls in and off
+        v = max(v, 0.55 + 0.43 * edge)
     return max(0.0, min(1.0, v))
 
 
@@ -1789,14 +1832,19 @@ def lightning(now, wet):
         b = _strike_flash(now - _forced_strike, False)
         if b:
             return b                    # asked for, so it comes even when dry
-    if wet < STRIKE_WET:
+    if not storming(now):
         return 0.0
-    k = int(now / STRIKE_SLOT)
+    # Inside one they come thick and fast: every slot has a strike in it, and a
+    # slot is under three seconds, so with a flash lasting most of two the sky
+    # is rarely dark for long.
+    k = int(now / STRIKE_EVERY)
     m = _mix(k, 0, 401)
-    if m % STRIKE_ODDS:
-        return 0.0
-    at = k * STRIKE_SLOT + ((m >> 8) & 1023) / 1023.0 * (STRIKE_SLOT - 3.0)
-    return _strike_flash(now - at, bool((m >> 20) & 1))
+    at = k * STRIKE_EVERY + ((m >> 8) & 1023) / 1023.0 * (STRIKE_EVERY - 1.6)
+    # Not all of them are overhead. Scaling each strike gives the storm some
+    # near ones and some away over the next district, which is the difference
+    # between weather and a metronome.
+    power = 0.45 + ((m >> 12) & 255) / 255.0 * 0.55
+    return power * _strike_flash(now - at, bool((m >> 20) & 1))
 
 
 def club_light(now, club):
@@ -1815,7 +1863,9 @@ def club_light(now, club):
     return None
 
 
-def weather_word(wet):
+def weather_word(now, wet):
+    if storming(now):
+        return "storm"
     if wet < 0.04:
         return "dry"
     if wet < 0.3:
@@ -2555,10 +2605,10 @@ def main(stdscr):
         elif street:
             v = View(cam_x, cam_z, yaw, width, height)
             ch, co, wet = render_street(v, now)
-            hud = STREET_HUD % (cam_x, cam_z, weather_word(wet))
+            hud = STREET_HUD % (cam_x, cam_z, weather_word(now, wet))
         else:
             ch, co = render_skyline(sky_x, width, height, now)
-            hud = SKYLINE_HUD % (sky_x, weather_word(rain_intensity(now)))
+            hud = SKYLINE_HUD % (sky_x, weather_word(now, rain_intensity(now)))
         if cheats:
             draw_cheats(ch, co, note)
 

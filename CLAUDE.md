@@ -208,12 +208,20 @@ somewhere you should not go.
 eases and occasionally stops; the HUD says which. Everything else scales off that one number —
 drop count, the `~` standing on the road, how far neon spills, whether stars are out at all.
 
-`lightning()` is deliberately, testably **rare**: about one strike every five or six minutes, and
-only while `wet >= STRIKE_WET`, so it belongs to the storm rather than happening at random. Time is
-cut into slots and only one slot in seven has a strike in it, which is the same
-answer-from-a-hash trick the layout uses — no state, and the same strike at the same moment however
-you got there. One clean flash reads as a rendering bug, so a strike is two or three sub-flashes a
-tenth of a second apart with an afterglow decaying behind them.
+**A storm is a weather in its own right**, not something that happens to a downpour, and it is by
+some distance the rarest of them: measured over a thousand simulated minutes it is about 4% of the
+time against dry's 16%, the next rarest. `storm_window()` puts them on a slot the way strikes used
+to be — one slot in six, a slot being three and a half minutes — so one rolls through roughly every
+twenty minutes and lasts about a minute. A storm can outlast its own slot, so the slot before this
+one has to be asked as well.
+
+While one is overhead it is **violent**. It brings its own rain regardless of where the sines
+happen to be, ramping in and off over seven seconds at the edges, and `lightning()` gives every
+strike slot a strike — a slot being under three seconds — so one lands every 2.7s and the sky is lit
+about 60% of the time. Each is scaled by a per-strike `power`, which is the difference between
+weather and a metronome: 9% of them are faint things away over the next district, 23% right
+overhead. Outside a storm there is no lightning at all, and there is a test that says so — a
+downpour on its own is now just rain.
 
 A flash is the only thing in the program that reaches across every pass at once, through `v.flash`:
 the sky fills pale, every corner and roof line goes white, the rain lights up, and `wall_colour()`
