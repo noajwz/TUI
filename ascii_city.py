@@ -73,6 +73,11 @@ WALK = 14.0            # world units per second
 TURN = 1.9             # radians per second
 SIDESTEP = 8.0
 
+SIGN_CLEAR = 4.2       # a projecting sign must clear anyone walking under it
+SIGN_STEP = 1.15       # world height of one stacked letter
+SIGN_OUT = 0.95        # how far a sign hangs off the wall, to its middle
+SIGN_HALF = 0.55       # and half its depth, out and back from that
+
 SMOKE_CYCLE = 7.0      # seconds between drags
 DRAG_LEN = 1.2         # how long a drag lasts
 
@@ -642,21 +647,33 @@ def make_face(rng, height):
             "phase": rng.uniform(0.0, 5.0),
         }
 
-    if rng.random() < 0.45:
-        text = rng.choice(SIGN_WORDS)
-        flicker = rng.random() < 0.3
-        face["hung"] = {
-            "text": text,
-            "u": rng.uniform(1.2, CELL - 1.2),
-            "out": 0.9,
-            "top": min(rng.uniform(5.5, 14.0), max(5.0, height - 0.5)),
-            "tone": rng.random(),
-            "flicker": flicker,
-            "dead": frozenset(rng.sample(range(len(text)), rng.randint(0, 1)))
-            if flicker else frozenset(),
-            "period": rng.uniform(1.7, 5.0),
-            "phase": rng.uniform(0.0, 5.0),
-        }
+    # Every value is drawn whether or not the sign ends up existing, so that
+    # deciding it will not fit cannot shift what the rest of the building rolls.
+    want = rng.random() < 0.45
+    text = rng.choice(SIGN_WORDS)
+    flicker = rng.random() < 0.3
+    u = rng.uniform(1.2, CELL - 1.2)
+    tone = rng.random()
+    dead = (frozenset(rng.sample(range(len(text)), rng.randint(0, 1)))
+            if flicker else frozenset())
+    period = rng.uniform(1.7, 5.0)
+    phase = rng.uniform(0.0, 5.0)
+    lift = rng.random()
+    # A sign hangs from its top and reads downwards, so where it ends is what
+    # matters and constraining the top alone guarantees nothing: a quarter of
+    # them used to finish below eye level and one in thirty ran into the
+    # pavement. Hang it high enough that the last letter clears a head, and if
+    # the building is too short for the whole word, it does not get one.
+    low = SIGN_CLEAR + SIGN_STEP * (len(text) - 1)
+    if want and low <= height - 0.5:
+        # And no higher than a storey or two over that. Hanging it anywhere in
+        # the building's height puts the signs on the tall ones up in the sky,
+        # where nobody in the street is looking.
+        high = min(height - 0.5, low + 5.0)
+        face["hung"] = {"text": text, "u": u, "out": SIGN_OUT,
+                        "top": low + lift * (high - low),
+                        "tone": tone, "flicker": flicker, "dead": dead,
+                        "period": period, "phase": phase}
 
     if rng.random() < 0.30:
         face["smoker"] = {"u": rng.uniform(1.2, CELL - 1.2), "out": 1.05,
@@ -1626,25 +1643,44 @@ def draw_marquee(ch, co, v, walls, cas, world, now):
                 put_cell(ch, co, v, walls, sx + k, sy + dy, dist, "o", GOLD)
 
 
-def draw_hung_sign(ch, co, v, walls, s, world, now, wet):
-    """A neon sign on a bracket over the pavement, letters stacked downwards -
-    the one kind you can still read head-on from the far end of the street.
+def draw_hung_sign(ch, co, v, walls, s, world, normal, now, wet):
+    """A neon sign on a bracket over the pavement, letters stacked downwards.
 
-    Laid out in rows rather than in world units on purpose: spacing the letters
-    by a true height makes two of them round onto the same row as the sign
+    The panel hangs **perpendicular to the wall**, the way a real projecting
+    sign does, and its two edges are projected as world points rather than
+    stepped out in screen columns. Framing it in screen space makes it a
+    billboard that turns to face you wherever you stand, so walking along the
+    pavement swings it out into the road and it reads as something you walked
+    straight through. Done properly it foreshortens to a strip when you are
+    square in front of it and opens out as you come along the street, which is
+    also when a sign like this is meant to be read.
+
+    The letters are laid out in rows rather than by true height: spacing them
+    by a real height makes two of them round onto the same row as the sign
     recedes, and a HOTEL with the T missing is worse than one slightly the
     wrong size."""
+    nx, nz = normal
     pr = v.project(world[0], s["top"], world[2])
     if pr is None:
         return
     sx, top, dist = int(round(pr[0])), int(round(pr[1])), pr[2]
-    step = max(1, int(round(1.15 * v.fy / dist)))
-    frame = max(1, int(round(0.55 * v.fx / dist)))
+    step = max(1, int(round(SIGN_STEP * v.fy / dist)))
     dark = NEON[min(len(NEON) - 1, int(s["tone"] * len(NEON)))][1]
 
-    for y in range(top - 1, top + (len(s["text"]) - 1) * step + 2):
-        put_cell(ch, co, v, walls, sx - frame, y, dist, "|", dark)
-        put_cell(ch, co, v, walls, sx + frame, y, dist, "|", dark)
+    foot = s["top"] - SIGN_STEP * (len(s["text"]) - 1)
+    edges = []
+    for d in (-SIGN_HALF, SIGN_HALF):
+        pt = v.project(world[0] + nx * d, s["top"] + 0.45, world[2] + nz * d)
+        pb = v.project(world[0] + nx * d, foot - 0.45, world[2] + nz * d)
+        if pt is not None and pb is not None:
+            edges.append((int(round(pt[0])), int(round(pt[1])),
+                          int(round(pb[1])), pt[2]))
+    # Edge-on the two sides land in the same column; drawing them then would
+    # only bury the letters behind their own frame.
+    if len(edges) == 2 and abs(edges[0][0] - edges[1][0]) > 1:
+        for ex, y0, y1, ed in edges:
+            for y in range(min(y0, y1), max(y0, y1) + 1):
+                put_cell(ch, co, v, walls, ex, y, ed, "|", dark)
     for i, letter in enumerate(s["text"]):
         attr = neon_attr(s, i, now)
         put_cell(ch, co, v, walls, sx, top + i * step, dist, letter, attr)
@@ -1729,7 +1765,7 @@ def draw_props(ch, co, v, walls, now, wet):
         if kind == "marquee":
             draw_marquee(ch, co, v, walls, s, world, now)
         elif kind == "hung":
-            draw_hung_sign(ch, co, v, walls, s, world, now, wet)
+            draw_hung_sign(ch, co, v, walls, s, world, normal, now, wet)
         elif kind == "raver":
             s["world"] = world
             draw_raver(ch, co, v, walls, s, now, wet)

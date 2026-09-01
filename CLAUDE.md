@@ -194,6 +194,19 @@ there is no fisheye to correct at the edges.
   `draw_hung_sign()` lays its letters out **in rows, not world units** — spacing them by a true
   height makes two of them round onto the same row as the sign recedes, and a HOTEL with the T
   missing is worse than one slightly the wrong size.
+- A projecting sign hangs **perpendicular to the wall**, and its two edges are projected as world
+  points rather than stepped out in screen columns. Framing it in screen space makes it a billboard
+  that turns to face you wherever you stand, so walking along the pavement swings it out into the
+  road and it reads as something you walked straight through. Done properly it foreshortens to a
+  strip when you are square in front of it and opens out as you come along the street — which is
+  when a sign like that is meant to be read anyway. Drawn edge-on the two sides land in the same
+  column, so the frame is suppressed rather than burying the letters behind itself.
+- **A sign hangs from its top and reads downwards, so where it ends is what matters.** Constraining
+  the top alone guarantees nothing: a quarter of them used to finish below eye level and one in
+  thirty ran into the pavement. `SIGN_CLEAR` is the floor the last letter has to clear, and a
+  building too short for the whole word does not get a sign at all (which costs about 1% of them).
+  There is a ceiling too — hang it anywhere in the building's height and every sign on a tall block
+  ends up in the sky where nobody in the street is looking.
 
 ### Getting lost is the feature
 
