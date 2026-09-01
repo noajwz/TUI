@@ -275,6 +275,13 @@ a wheel.
 
 ### The cheat menu
 
+**Anything new in the city gets an entry here, in the same commit that adds it.** This is a standing
+instruction, not a nicety: everything worth looking at is deliberately rare, so a feature with no way
+to reach it cannot be checked by the person who asked for it, and will not be. If what you added is a
+place, give it a row in `CHEAT_PLACES` and a predicate for `find_place()`; if it is a condition —
+weather, time, a mode — give it a key that sets it, the way `w` and `L` do. Both are a few lines.
+Adding the feature and leaving the menu alone is an unfinished job.
+
 `` ` `` opens a panel over the live view — over, not instead of, so that weather you change happens
 in front of you. Letters belong to the panel while it is up; the arrow keys do not, so you can still
 walk about with it open.
