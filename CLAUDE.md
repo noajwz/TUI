@@ -346,6 +346,20 @@ eight seconds, fading up and out so it arrives rather than switching on. No expl
 `A` in the cheat menu goes straight to one, and the HUD says `~ something over the city ~`. Both
 matter — one night in forty is unreachable by waiting, and from a street you might not look up.
 
+### Planned: the river, and bridges over it
+
+Wanted, in this order: **a river**, a **pier** off the docks, and later **bridges with lights on
+them**. The bridges are the destination — the river exists so there is something to put them over —
+so leave room for them: a crossing wants to be a thing in its own right, with a deck you walk along,
+a span you can see the shape of from the water, and lights down it.
+
+The river is the first thing in this city that is neither open nor solid. Every cell so far is one
+or the other, and `is_open()` answers both "can you see through it" and "can you be here". Water is
+**see-through but not standable**, so those two questions have to come apart: `is_open()` stays the
+sight test and says yes to water, and `can_stand()` gains a water test of its own. Everything that
+means "there is a building here" — alleys, clearings, `near_lots()` — has to reject water first, or
+the generator will try to put a fire escape on a wave.
+
 **A note kept on purpose, for whenever the woods rave is rebuilt:** the rig in the trees ought to
 know. Whoever carried a sound system into a park on the one night in forty that the sky has
 something in it was not guessing. Whether that means it is always on that night, or locked to the
