@@ -316,8 +316,33 @@ Two things worth keeping:
 `SkyBox` exists so the sky effects can draw into the waterfront view too: they want a width and a
 horizon, and the street's `View` carries a camera the skyline has no use for.
 
+**The city gives up its own rhythms and takes the sky's.** `city_sync()` returns `flash`, `on` or
+`off` on that night and `None` on every other, and `neon_attr()`, `club_light()`, the bare bulbs and
+the lantern strings all consult it — so every sign in view breathes together, the kick takes the
+whole city white at once, and whoever is playing the club gives up 134 BPM and mixes into it. Even
+the dead tubes are cured for the night. Signs keep **their own colours** through it: one beat, not
+one colour, or the city flattens into a single wash and stops being a city.
+
+Everyone on the pavement stops as well — the smokers and the queue outside the club both switch to
+`LOOK_UP` and stand still. It is the stillness that reads more than the figure: a street where
+nobody is doing anything is a street where everyone is looking at the same thing.
+
+Two things happen once a night rather than continuously. `draw_mother()` brings the big one over,
+thirty-four cells wide and two minutes end to end, placed **by bearing** like everything else hung in
+the sky — something that size sliding about as you turn your head would give the whole thing away.
+Its blanks are hull and blot out the stars behind them; letting the sky through a shape this big
+makes it read as a pattern laid over the stars rather than as something in the way of them.
+`draw_landing_beam()` stops one of the sweeping beams dead over a rooftop and holds it there for
+eight seconds, fading up and out so it arrives rather than switching on. No explanation offered.
+
 `A` in the cheat menu goes straight to one, and the HUD says `~ something over the city ~`. Both
 matter — one night in forty is unreachable by waiting, and from a street you might not look up.
+
+**A note kept on purpose, for whenever the woods rave is rebuilt:** the rig in the trees ought to
+know. Whoever carried a sound system into a park on the one night in forty that the sky has
+something in it was not guessing. Whether that means it is always on that night, or locked to the
+same beat, or simply that the crowd is all facing up, is for the rewrite to decide — but the theory
+is worth keeping alive.
 
 ### The rig in the woods
 

@@ -580,10 +580,12 @@ def draw_stars(ch, co, cam_x, ground, wet, now):
             co[y][sx] = attr
 
     if n["alien"]:
-        sky = SkyBox(width, top)
+        sky = SkyBox(width, top, off)
         tops = [top] * width
         draw_sky_beams(ch, co, sky, tops, now, set())
+        draw_mother(ch, co, sky, tops, now, set())
         draw_saucers(ch, co, sky, tops, now, set())
+        draw_landing_beam(ch, co, sky, tops, now, set())
 
     # The moon rides the same slow scroll, so it keeps its place among them.
     face = moon_face(n["phase"])
@@ -1223,6 +1225,18 @@ class View:
         cam = 2.0 * sx / (self.width - 1) - 1.0
         return self.dx + self.plx * cam, self.dz + self.plz * cam
 
+    def sky_x(self, bearing):
+        """Which column a compass bearing falls in, or None if it is behind
+        you. Anything hung in the sky is placed by bearing rather than by
+        column, or it slides about as you turn."""
+        d = (bearing - self.yaw + math.pi) % math.tau - math.pi
+        if abs(d) > 1.3:
+            return None
+        cam = math.tan(d) / PLANE
+        if abs(cam) > 1.0:
+            return None
+        return int(round((cam + 1.0) * 0.5 * (self.width - 1)))
+
     def project(self, x, y, z):
         """World point -> (screen x, screen y, distance), or None if behind."""
         rx = x - self.x
@@ -1355,6 +1369,10 @@ def wall_colour(b, dist, lit, flash=0.0):
 
 def neon_attr(s, i, now):
     lit, dark = NEON[min(len(NEON) - 1, int(s["tone"] * len(NEON)))]
+    sync = city_sync(now)
+    if sync is not None:
+        # The bad tubes are cured for one night, along with everything else.
+        return FLASH if sync == "flash" else (lit if sync == "on" else dark)
     if i in s["dead"]:
         return dark             # one letter of this sign gave up long ago
     if s["flicker"]:
@@ -1801,10 +1819,18 @@ class SkyBox:
     They want a width and a horizon and nothing else - the street's View
     carries a camera the waterfront has no use for."""
 
-    def __init__(self, width, horizon):
+    def __init__(self, width, horizon, off=0):
         self.width = width
         self.horizon = horizon
         self.height = horizon
+        self.off = off
+
+    def sky_x(self, bearing):
+        """The waterfront has no camera to turn, so a bearing just maps across
+        the same slow scroll the stars ride on."""
+        span = self.width * 2
+        return (int(bearing / math.tau * span - self.off) % span
+                - self.width // 2)
 
 
 STAR_TIERS = ((640, ".", "dim"), (860, "'", "dim"), (950, "*", "mid"),
@@ -1971,7 +1997,9 @@ def draw_sky(ch, co, v, walls, wet, now):
 
     if n["alien"]:
         draw_sky_beams(ch, co, v, tops, now, seen)
+        draw_mother(ch, co, v, tops, now, seen)
         draw_saucers(ch, co, v, tops, now, seen)
+        draw_landing_beam(ch, co, v, tops, now, seen)
     if clear > 0.15:
         draw_moon(ch, co, v, tops, now, seen)
         draw_meteor(ch, co, v, tops, now, seen)
@@ -2183,6 +2211,19 @@ RAVER_DOWN = [
     "_| |_",
 ]
 
+# Head back, hands down, not moving. Used by everyone on the pavement on the
+# one night there is something to look at - it is the stillness that reads,
+# more than the figure: a street where nobody is doing anything is a street
+# where everybody is looking at the same thing.
+LOOK_UP = [
+    " ,-. ",
+    "(' ')",
+    "  |  ",
+    " /#\\ ",
+    " | | ",
+    "_| |_",
+]
+
 SMOKER_H = 1.9         # how tall he is, in world units
 SMOKER_W = 0.79        # chosen so the art keeps its aspect ratio on screen
 
@@ -2279,6 +2320,11 @@ def draw_smoker(ch, co, v, walls, p, now, wet):
     t = (now + p["phase"]) % SMOKE_CYCLE
     dragging = t < DRAG_LEN
     x, _, z = p["world"]
+    if night(now)["alien"]:
+        # The cigarette can wait.
+        blit_sprite(ch, co, v, walls, LOOK_UP, x, z, 0.05, SMOKER_H,
+                    SMOKER_W, CURB)
+        return
     blit_sprite(ch, co, v, walls,
                 SMOKER_DRAG if dragging else SMOKER_REST,
                 x, z, 0.05, SMOKER_H, SMOKER_W, CURB)
@@ -2321,6 +2367,11 @@ def draw_raver(ch, co, v, walls, p, now, wet):
     up = (t + p["swing"] * 0.18) % 1.0 < 0.5
     lamp = club_light(now, club)
     x, _, z = p["world"]
+    if night(now)["alien"]:
+        # Even the queue stops dancing for this.
+        blit_sprite(ch, co, v, walls, LOOK_UP, x, z, 0.05, SMOKER_H,
+                    SMOKER_W, lamp if lamp is not None else CURB)
+        return
     blit_sprite(ch, co, v, walls, RAVER_UP if up else RAVER_DOWN,
                 x, z, 0.05, SMOKER_H, SMOKER_W,
                 lamp if lamp is not None else CURB)
@@ -2371,7 +2422,10 @@ def draw_lanterns(ch, co, v, walls, s, i, j, f, now, wet):
         sway = 0.13 * math.sin(now * 1.1 + s["phase"] + k * 0.8)
         x, _, z = face_point(i, j, f, u + sway, 0.6, 0.0)
         put_cell_world(ch, co, v, walls, x, s["y"] + 0.55, z, "-", dark)
-        put_lit(ch, co, v, walls, x, s["y"], z, "o", lit, wet, now)
+        sync = city_sync(now)
+        glow = lit if sync is None else (
+            FLASH if sync == "flash" else (lit if sync == "on" else dark))
+        put_lit(ch, co, v, walls, x, s["y"], z, "o", glow, wet, now)
 
 
 def put_cell_world(ch, co, v, walls, x, y, z, glyph, attr):
@@ -2706,12 +2760,18 @@ def draw_props(ch, co, v, walls, now, wet):
         else:
             # A bare bulb over a back door. The failing ones stutter, and an
             # alley lit by one of those is worse than an alley lit by none.
-            on = True
-            if s["dying"]:
-                p = (now * 3.1 + s["phase"]) % 1.0
-                on = p > 0.22 or int(now * 11 + s["phase"]) % 3 == 0
+            sync = city_sync(now)
+            if sync is not None:
+                on = sync != "off"
+                attr = FLASH if sync == "flash" else BULB
+            else:
+                on = True
+                if s["dying"]:
+                    p = (now * 3.1 + s["phase"]) % 1.0
+                    on = p > 0.22 or int(now * 11 + s["phase"]) % 3 == 0
+                attr = BULB if on else BULB_DIM
             put_lit(ch, co, v, walls, world[0], world[1], world[2],
-                    "o" if on else ".", BULB if on else BULB_DIM, wet, now)
+                    "o" if on else ".", attr if on else BULB_DIM, wet, now)
 
 
 def _d2(v, w):
@@ -2848,7 +2908,15 @@ def club_light(now, club):
     """What is coming out of the club this instant, or None while it is dark.
 
     Four to the floor at 134, with the strobe let off the leash at the end of
-    every eighth bar."""
+    every eighth bar - except on the one night a year the sky is doing
+    something, when whoever is on gives up and mixes into it."""
+    sync = city_sync(now)
+    if sync is not None:
+        if sync == "flash":
+            return FLASH
+        if sync == "off":
+            return None
+        return NEON[min(len(NEON) - 1, int(club["tone"] * len(NEON)))][0]
     t = now * CLUB_BPM / 60.0 + club["phase"]
     beat = t % 1.0
     if (int(t) // 4) % 8 == 7 and int(t * 8) % 2:
@@ -2917,6 +2985,8 @@ def night(now):
             "warmth": 0.15 + ((m >> 11) & 15) / 15.0 * 0.4,
             "meteors": (m >> 29) & 7,
             "alien": (m >> 24) % ALIEN_ODDS == 0,
+            "mother": ((m >> 13) & 255) / 255.0,   # when the big one crosses
+            "lands": ((m >> 2) & 255) / 255.0,     # and when one beam stops
         }
         if got["alien"]:
             # Whatever the weather was going to be up there, the sky is lit by
@@ -2925,6 +2995,28 @@ def night(now):
             got["band"] = True
         _night_cache[k] = got
     return got
+
+
+def city_sync(now):
+    """How the whole city is lit this instant, or None on an ordinary night.
+
+    On the strange one everything electric in the place gives up its own
+    schedule and takes the sky's: "flash" is the kick, and every sign, bulb and
+    lantern in view goes white together; "on" and "off" are the half of the bar
+    either side of it. Signs keep their own colours through it - one beat, not
+    one colour, or the city flattens into a single wash and stops being a city.
+
+    Cheap on purpose: it is asked once per sign per frame, so it is a dict
+    lookup and two multiplies."""
+    if not night(now)["alien"]:
+        return None
+    t = now * ALIEN_BPM / 60.0
+    if (int(t) // 4) % 8 == 7 and int(t * 6) % 2:
+        return "flash"
+    beat = t % 1.0
+    if beat < 0.13:
+        return "flash"
+    return "on" if beat < 0.52 else "off"
 
 
 def alien_light(now, k):
@@ -2964,6 +3056,90 @@ def draw_sky_beams(ch, co, v, tops, now, seen):
                 ch[y][x] = glyph
                 co[y][x] = attr
                 seen.add((y, x))
+
+
+MOTHER = [
+    "        __________________        ",
+    "    ,-''                  ''-,    ",
+    "  ,'   .   .   .   .   .   .   ', ",
+    " /______________________________\\ ",
+    " \\    o       o       o       o / ",
+    "  '----------------------------'  ",
+]
+
+MOTHER_CROSS = 115.0    # seconds end to end, which is not fast
+
+
+def draw_mother(ch, co, v, tops, now, seen):
+    """The big one. Once a night, and it takes two minutes to go over.
+
+    Placed by bearing rather than column, because something this size sliding
+    about as you turn your head would give the whole thing away. Slow is the
+    point: the little saucers dart, and this does not."""
+    n = night(now)
+    t = (now + _night_skip) % NIGHT_LENGTH
+    at = n["mother"] * (NIGHT_LENGTH - MOTHER_CROSS)
+    k = (t - at) / MOTHER_CROSS
+    if not 0.0 <= k < 1.0:
+        return
+    bearing = n["swing"] + (k - 0.5) * 3.4
+    x0 = v.sky_x(bearing)
+    if x0 is None:
+        return
+    y0 = 1 + int(0.18 * v.horizon)
+    lights = int(now * ALIEN_BPM / 60.0 * 2)
+    for r, line in enumerate(MOTHER):
+        y = y0 + r
+        if not 0 <= y < v.horizon:
+            continue
+        for c, glyph in enumerate(line):
+            x = x0 - len(line) // 2 + c
+            if not (0 <= x < v.width and y < tops[x]):
+                continue
+            # Blanks are hull too, and they blot out the stars behind them.
+            # Letting the sky show through a thing this size makes it read as a
+            # pattern laid over the stars rather than as something in the way
+            # of them, which is the whole of why it is worth drawing big.
+            if glyph == " ":
+                if r in (0, len(MOTHER) - 1) and line.strip():
+                    continue
+                ch[y][x] = " "
+                seen.add((y, x))
+                continue
+            ch[y][x] = glyph
+            co[y][x] = (NEON[(c + lights) % len(NEON)][0]
+                        if glyph in "o." else MOON_DIM)
+            seen.add((y, x))
+
+
+def draw_landing_beam(ch, co, v, tops, now, seen):
+    """One of them stops sweeping and stands still on a rooftop.
+
+    No explanation offered. It holds for eight seconds, which is long enough
+    that you notice it has stopped, and it goes all the way down to whatever it
+    has picked out rather than fading into the sky."""
+    n = night(now)
+    t = (now + _night_skip) % NIGHT_LENGTH
+    at = n["lands"] * (NIGHT_LENGTH - 40.0)
+    k = t - at
+    if not 0.0 <= k < 8.0:
+        return
+    bearing = n["swing"] + 1.1
+    x0 = v.sky_x(bearing)
+    if x0 is None:
+        return
+    # Fades up over the first second and out over the last, so it arrives
+    # rather than being switched on.
+    edge = min(1.0, k / 1.0, (8.0 - k) / 1.5)
+    attr = FLASH if int(now * 6) % 2 else NEON[int(now) % len(NEON)][0]
+    half = max(1, int(2 * edge))
+    for x in range(x0 - half, x0 + half + 1):
+        if not 0 <= x < v.width:
+            continue
+        for y in range(min(tops[x], v.horizon)):
+            ch[y][x] = "|" if x == x0 else ":"
+            co[y][x] = attr
+            seen.add((y, x))
 
 
 SAUCER = "<-o->"
