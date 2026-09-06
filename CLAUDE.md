@@ -269,11 +269,21 @@ would exist and be invisible.
 ### The rig in the woods
 
 The one easter egg. Somebody carries a sound system into a park and does not ask anyone, and it is
-**rare twice over**, which is the whole of what makes it worth finding: rare in *space*, because
-`clearing_at()` wants an open park cell walled in by trees on most sides and at least two cells from
-any road, so most parks have none at all — about one per 2,700 park cells; and rare in *time*,
-because `rave_window()` is on roughly 7% of the time. Finding the clearing is not the same as
+**rare twice over**, which is the whole of what makes it worth finding: rare in *space*, and rare in
+*time*, because `rave_window()` is on roughly 7% of the time. Finding the clearing is not the same as
 finding a rave, and that is deliberate.
+
+**It can only be in the middle of a park** — never out on the lawn at its edge, never within sight of
+a road. `park_core()` is the test, and it samples park-ness at a handful of offsets rather than
+measuring a real distance to the edge, because the true answer is a flood fill and this is asked for
+every cell the raycaster steps through.
+
+Making that stick needed the **wood to thicken towards the middle**: a third of the core is trees
+against a quarter of the lawn. Without it the rule had no solutions at all — a clearing wants four
+tree neighbours out of eight, and at a flat quarter density only 199 park cells in a 500×500 patch
+managed it, none of which were interior. Do not push it much past a third: open cells stop
+percolating somewhere around 60%, and the middle of every park becomes a wall you cannot walk into.
+There is a test that a clearing can still be reached on foot from a road.
 
 What sells it is not the rig. It is the **canopy**: a lit clearing throws its colour up into the
 leaves around it, so `draw_tree_column()` swaps the leaf palette for the rig's when it is near one.

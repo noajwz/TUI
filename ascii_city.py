@@ -106,15 +106,16 @@ CLUB_BPM = 134.0
 
 # --- the rig in the woods ---
 # Somebody carries a sound system into a park and does not ask anyone. It is
-# rare twice over, which is what makes it worth finding: only one clearing in a
-# park is deep enough in the trees to hold one, and it is only on for half an
-# hour in every hour or so. Faster than the club, because it is not a club.
+# rare twice over, which is what makes it worth finding: it can only be in the
+# thick of a wood in the middle of a park - never out on the lawn, never within
+# sight of a road - and it is only on for a few minutes in the hour. Faster
+# than the club, because it is not a club.
 RAVE_SLOT = 320.0      # seconds per slot in which one might be on
 RAVE_ODDS = 7          # and only one slot in this many has one
 RAVE_SHORT = 90.0      # the shortest it goes on for
 RAVE_LONG = 200.0
 RAVE_BPM = 168.0
-RAVE_ODDS_SPACE = 5    # one clearing in this many is the one they use
+RAVE_ODDS_SPACE = 30   # and only one candidate clearing in this many is used
 CASINO_REACH = 2.3     # how close to the door you have to get to be inside
 CASINO_AGAIN = 1.6     # seconds before it deals you another one
 
@@ -772,7 +773,7 @@ def clearing_at(i, j):
     if hit is None:
         _evict(_clearing_cache, 40000)
         hit = False
-        if (DISTRICTS[district_at(i, j)]["park"] and is_open(i, j)
+        if (park_core(i, j) and is_open(i, j)
                 and not road_at(i, j) and _mix(i, j, 733) % RAVE_ODDS_SPACE == 0):
             trees = sum(not is_open(i + a, j + b)
                         for a in (-1, 0, 1) for b in (-1, 0, 1) if a or b)
@@ -854,14 +855,41 @@ def is_open(i, j):
         _evict(_open_cache, 60000)
         if DISTRICTS[district_at(i, j)]["park"]:
             # Roads still cross a park; everything else is grass, but for the
-            # quarter of it that is a clump of trees - which is solid, so the
-            # renderer and the collision both already know what to do with it.
-            hit = road_at(i, j) or _mix(i, j, 83) % 4 != 0
+            # clumps of trees - which are solid, so the renderer and the
+            # collision both already know what to do with them. The wood
+            # thickens towards the middle: a third of the core is trees against
+            # a quarter of the lawn round the edges, which is what gives the
+            # interior somewhere properly hidden. Not much past a third, or the
+            # clumps join up and the middle of every park is a wall - open
+            # cells stop percolating somewhere around 60%.
+            hit = road_at(i, j) or _mix(i, j, 83) % (3 if park_core(i, j)
+                                                     else 4) != 0
         else:
             hit = (road_at(i, j)
                    or _is_alley(i, j, XP, 91, 211) or _is_alley(j, i, ZP, 137, 223)
                    or _mix(i, j, 57) % 47 == 0)
         _open_cache[key] = hit
+    return hit
+
+
+_core_cache = {}
+
+
+def park_core(i, j):
+    """Deep inside a park, rather than out on its edge.
+
+    Sampled at a handful of offsets instead of measured properly: the distance
+    to the nearest edge would be a flood fill, and this is asked for every cell
+    the raycaster steps through. Cardinals at five cells and diagonals at four
+    is enough to tell the middle of a park from its lawn."""
+    key = i * 1048576 + j
+    hit = _core_cache.get(key)
+    if hit is None:
+        _evict(_core_cache, 40000)
+        hit = all(DISTRICTS[district_at(i + a, j + b)]["park"]
+                  for a, b in ((0, 0), (-5, 0), (5, 0), (0, -5), (0, 5),
+                               (-4, -4), (4, 4), (-4, 4), (4, -4)))
+        _core_cache[key] = hit
     return hit
 
 
@@ -2666,13 +2694,23 @@ def render_street(v, now):
     v.flash = lightning(now, wet)
 
     if rave_window(now) is not None:
+        # The nearest lit one, not the first the scan happens to reach: two
+        # clearings can be in view at once, and taking whichever came out of
+        # the loop first threw the light of a rig sixty units away over one
+        # you were standing next to.
+        best = None
         for ri, rj in near_clearings(v, 70.0):
             m = _mix(ri, rj, 977)
             lamp = rave_light(now, (m & 255) / 255.0 * 6.0,
                               ((m >> 8) & 255) / 255.0)
-            if lamp is not None:
-                v.rave = (lamp, (ri + 0.5) * CELL, (rj + 0.5) * CELL)
-            break
+            if lamp is None:
+                continue
+            cx, cz = (ri + 0.5) * CELL, (rj + 0.5) * CELL
+            d2 = (cx - v.x) ** 2 + (cz - v.z) ** 2
+            if best is None or d2 < best[0]:
+                best = (d2, lamp, cx, cz)
+        if best is not None:
+            v.rave = best[1:]
 
     walls = draw_walls(ch, co, v, now)
     draw_sky(ch, co, v, walls, wet)
