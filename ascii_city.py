@@ -103,6 +103,18 @@ STRIKE_EVERY = 2.8     # seconds between strikes once one is overhead
 # --- the club, and the casino across town ---
 CLUB_ODDS = 1200       # one building in this many is one, and it is unmarked
 CLUB_BPM = 134.0
+
+# --- the rig in the woods ---
+# Somebody carries a sound system into a park and does not ask anyone. It is
+# rare twice over, which is what makes it worth finding: only one clearing in a
+# park is deep enough in the trees to hold one, and it is only on for half an
+# hour in every hour or so. Faster than the club, because it is not a club.
+RAVE_SLOT = 320.0      # seconds per slot in which one might be on
+RAVE_ODDS = 7          # and only one slot in this many has one
+RAVE_SHORT = 90.0      # the shortest it goes on for
+RAVE_LONG = 200.0
+RAVE_BPM = 168.0
+RAVE_ODDS_SPACE = 5    # one clearing in this many is the one they use
 CASINO_REACH = 2.3     # how close to the door you have to get to be inside
 CASINO_AGAIN = 1.6     # seconds before it deals you another one
 
@@ -746,6 +758,61 @@ def _is_alley(i, j, period, salt, run_salt):
 _yoko_cache = {}
 
 
+_clearing_cache = {}
+
+
+def clearing_at(i, j):
+    """Is this the clearing in the woods, the one deep enough in the trees.
+
+    Deep matters: a rig in a park cell you can see from the road is not the
+    thing, and the whole point is that you come across it. So the cell has to
+    be open, in a park, off the road, and walled in by trees on most sides."""
+    key = i * 1048576 + j
+    hit = _clearing_cache.get(key)
+    if hit is None:
+        _evict(_clearing_cache, 40000)
+        hit = False
+        if (DISTRICTS[district_at(i, j)]["park"] and is_open(i, j)
+                and not road_at(i, j) and _mix(i, j, 733) % RAVE_ODDS_SPACE == 0):
+            trees = sum(not is_open(i + a, j + b)
+                        for a in (-1, 0, 1) for b in (-1, 0, 1) if a or b)
+            near_road = any(road_at(i + a, j + b)
+                            for a in range(-2, 3) for b in range(-2, 3))
+            hit = trees >= 4 and not near_road
+        _clearing_cache[key] = hit
+    return hit
+
+
+def rave_window(now):
+    """(start, length) of the rave that is on, or None. Same shape as a storm,
+    on a longer slot and longer odds - about one hour in seven has one."""
+    k = int(now / RAVE_SLOT)
+    for kk in (k, k - 1):
+        m = _mix(kk, 0, 829)
+        if m % RAVE_ODDS:
+            continue
+        start = kk * RAVE_SLOT + ((m >> 8) & 1023) / 1023.0 * RAVE_SLOT * 0.4
+        length = RAVE_SHORT + ((m >> 19) & 255) / 255.0 * (RAVE_LONG - RAVE_SHORT)
+        if start <= now < start + length:
+            return start, length
+    return None
+
+
+def rave_light(now, phase, tone):
+    """What the rig is doing this instant, or None between hits. Same idea as
+    club_light() but faster and less forgiving - no colour wash between the
+    kicks, just dark."""
+    t = now * RAVE_BPM / 60.0 + phase
+    beat = t % 1.0
+    if (int(t) // 4) % 16 == 15 and int(t * 8) % 2:
+        return FLASH                    # the strobe run at the end of a phrase
+    if beat < 0.10:
+        return FLASH
+    if beat < 0.26:
+        return NEON[min(len(NEON) - 1, int(tone * len(NEON)))][0]
+    return None
+
+
 def yokocho_at(i, j):
     """Is this alley cell a lit one.
 
@@ -1052,6 +1119,7 @@ class View:
         self.fx = self.cx / PLANE
         self.fy = self.fx * 0.5
         self.wide = set()       # cells holding a double-width glyph
+        self.rave = None        # (colour, x, z) of a rig lighting the woods
         self.wet = 0.0          # how hard it is raining, 0..1
         self.flash = 0.0        # how bright the lightning is this instant
 
@@ -1369,6 +1437,16 @@ def draw_tree_column(ch, co, v, sx, dist, b, u, r_lo, r_hi):
     crown = int(round(v.horizon - (top_y - EYE_Y) * scale))
     under = int(round(v.horizon - (top_y * 0.34 - EYE_Y) * scale))
     leaf = tone_colour("leaf", b["tone"])
+    # A rig in a clearing throws its light up into the leaves around it, and
+    # that is what you see first - long before the stack, the fire or anyone
+    # standing in front of them. Nearest trees take the most of it.
+    if v.rave is not None:
+        lamp, rx, rz = v.rave
+        zw = v.z + v.dz * dist
+        xw = v.x + v.dx * dist
+        near = (xw - rx) ** 2 + (zw - rz) ** 2
+        if near < 900.0:
+            leaf = lamp
     for y in range(max(r_lo, crown), min(r_hi, under) + 1):
         if _mix(sx, y, 11) % 100 < 64:
             ch[y][sx] = "&%*#"[_mix(sx, y, 13) % 4]
@@ -2173,6 +2251,86 @@ def near_yokocho(v, reach):
                 yield i, j
 
 
+STACK = [
+    " ___ ",
+    "|OOO|",
+    "|OOO|",
+    "|___|",
+    "|OOO|",
+    "|OOO|",
+    "|___|",
+]
+
+
+def draw_woods_rave(ch, co, v, walls, i, j, now, wet):
+    """A rig in a clearing, in the dark, with no permission.
+
+    Everything in here runs off one clock the way the club does, so the trees,
+    the crowd and the light on the ground all hit together. What sells it is
+    not the rig but the canopy: light going up into the leaves is how you know
+    something is happening in a wood before you can see any of it."""
+    cx = (i + 0.5) * CELL
+    cz = (j + 0.5) * CELL
+    m = _mix(i, j, 977)
+    phase = (m & 255) / 255.0 * 6.0
+    tone = ((m >> 8) & 255) / 255.0
+    lamp = rave_light(now, phase, tone)
+    lit = NEON[min(len(NEON) - 1, int(tone * len(NEON)))][0]
+    t = now * RAVE_BPM / 60.0 + phase
+
+    # The stack, against the trees at the back of the clearing.
+    sx = cx + (1.0 if m & 1 else -1.0) * 1.5
+    blit_sprite(ch, co, v, walls, STACK, sx, cz + 1.9, 0.0, 2.6, 1.4,
+                lamp if lamp is not None else CONCRETE)
+
+    # A fire, which is the only thing down there that is not on the beat.
+    fx, fz = cx - 1.7, cz - 1.4
+    for k in range(5):
+        a = now * 3.0 + k * 1.3
+        put_lit(ch, co, v, walls, fx + 0.22 * math.sin(a), 0.25 + 0.16 * k,
+                fz + 0.18 * math.cos(a * 0.7),
+                "^*o.,"[k], EMBER_HOT if k < 2 else EMBER, wet, now)
+
+    # Beams going up into the canopy - the giveaway, from much further off
+    # than any of the rest of it.
+    if lamp is not None:
+        for k in range(5):
+            a = math.sin(t * (0.5 + k * 0.17) + k * 1.9)
+            for step in range(7):
+                h = 1.8 + step * 1.5
+                put_point(ch, co, v, walls, cx + a * h * 0.34, h,
+                          cz + math.cos(t * 0.3 + k) * h * 0.22,
+                          "|" if abs(a) < 0.4 else ("\\" if a > 0 else "/"),
+                          NEON[(k + int(t / 8)) % len(NEON)][0])
+
+    # And the people, who are the reason for it.
+    for k in range(5):
+        g = _mix(i, j, 40 + k)
+        px = cx + ((g & 255) / 255.0 - 0.5) * 3.6
+        pz = cz + (((g >> 8) & 255) / 255.0 - 0.5) * 2.6
+        up = ((t + (g >> 16 & 15) * 0.13) % 1.0) < 0.5
+        blit_sprite(ch, co, v, walls, RAVER_UP if up else RAVER_DOWN,
+                    px, pz, 0.05, SMOKER_H, SMOKER_W,
+                    lamp if lamp is not None else BARK)
+        if lamp is not None:
+            put_point(ch, co, v, walls, px + (0.5 if up else 0.35),
+                      1.55 + (0.4 if up else 0.0), pz, "*", lit)
+
+
+def near_clearings(v, reach):
+    n = int(reach / CELL) + 1
+    ci = int(v.x / CELL + BIG) - BIG
+    cj = int(v.z / CELL + BIG) - BIG
+    for i in range(ci - n, ci + n + 1):
+        for j in range(cj - n, cj + n + 1):
+            rx = (i + 0.5) * CELL - v.x
+            rz = (j + 0.5) * CELL - v.z
+            if rx * v.dx + rz * v.dz < -CELL:
+                continue
+            if clearing_at(i, j):
+                yield i, j
+
+
 def near_lots(v, reach):
     """Solid cells within reach that are not behind you."""
     n = int(reach / CELL) + 1
@@ -2507,6 +2665,15 @@ def render_street(v, now):
     wet = v.wet = rain_intensity(now)
     v.flash = lightning(now, wet)
 
+    if rave_window(now) is not None:
+        for ri, rj in near_clearings(v, 70.0):
+            m = _mix(ri, rj, 977)
+            lamp = rave_light(now, (m & 255) / 255.0 * 6.0,
+                              ((m >> 8) & 255) / 255.0)
+            if lamp is not None:
+                v.rave = (lamp, (ri + 0.5) * CELL, (rj + 0.5) * CELL)
+            break
+
     walls = draw_walls(ch, co, v, now)
     draw_sky(ch, co, v, walls, wet)
     draw_ground(ch, co, v, walls, collect_glow(v, now, wet), wet, now)
@@ -2514,6 +2681,9 @@ def render_street(v, now):
     draw_props(ch, co, v, walls, now, wet)
     for i, j in near_yokocho(v, 55.0):
         draw_lantern_string(ch, co, v, walls, i, j, now)
+    if rave_window(now) is not None:
+        for i, j in near_clearings(v, 70.0):
+            draw_woods_rave(ch, co, v, walls, i, j, now, wet)
     draw_rain(ch, co, v, walls, now, wet)
     return ch, co, wet
 
@@ -2814,6 +2984,7 @@ CHEAT_PLACES = [
     ("8", "far away", "far"),
     ("9", "inside a casino", "inside"),
     ("0", "inside the club", "clubdoor"),
+    ("R", "the woods rave", "clearing"),
 ]
 
 
@@ -2965,6 +3136,27 @@ def _district_spot(x, z, want):
     return None
 
 
+def _clearing_spot(x, z):
+    """Stand at the edge of the clearing looking in, which is how you would
+    come across it. Note this only takes you there - whether anything is
+    happening is the sky's business, so hold w by the fire until it starts, or
+    take the hint from the HUD."""
+    ci = int(x / CELL + BIG) - BIG
+    cj = int(z / CELL + BIG) - BIG
+    for i, j in _rings(ci, cj, CHEAT_RINGS):
+        if not clearing_at(i, j):
+            continue
+        cx, cz = (i + 0.5) * CELL, (j + 0.5) * CELL
+        for back, yaw in (((0.0, -1.0), 0.0), ((0.0, 1.0), math.pi),
+                          ((-1.0, 0.0), math.pi / 2), ((1.0, 0.0), -math.pi / 2)):
+            px, pz = cx + back[0] * 5.5, cz + back[1] * 5.5
+            if can_stand(px, pz):
+                return px, pz, math.atan2(cx - px, cz - pz)
+        if can_stand(cx, cz):
+            return cx, cz, best_yaw(cx, cz)
+    return None
+
+
 def _doorway(x, z, salt, key):
     """Standing in the door of the nearest one of these, which is what puts you
     inside it. No skipping the one underfoot here: if you are outside a club
@@ -3000,6 +3192,8 @@ def find_place(x, z, kind):
         return _doorway(x, z, 911, "casino")
     if kind == "clubdoor":
         return _doorway(x, z, 909, "club")
+    if kind == "clearing":
+        return _clearing_spot(x, z)
     if kind.startswith("@"):
         return _district_spot(x, z, int(kind[1:]))
 
@@ -3184,7 +3378,7 @@ def render_rave(club, width, height, now):
 ARROWS = (curses.KEY_LEFT, curses.KEY_RIGHT, curses.KEY_UP, curses.KEY_DOWN)
 
 SKYLINE_HUD = " x=%-6d %s  tab view  arrows/hl walk  HL run  space wander  ` cheats "
-STREET_HUD = " %d,%d %s, %s  ws walk  ad turn  ,. step  tab view  ` cheats "
+STREET_HUD = " %d,%d %s, %s%s  ws walk  ad turn  ,. step  tab view  ` cheats "
 ROULETTE_HUD = " inside the %s casino at %d,%d  -  s walks back out  -  q quit "
 RAVE_HUD = " inside the club at %d,%d  -  s walks back out  -  q quit "
 
@@ -3351,7 +3545,9 @@ def main(stdscr):
                 cam_x, cam_z,
                 district(int(cam_x / CELL + BIG) - BIG,
                          int(cam_z / CELL + BIG) - BIG)["name"],
-                weather_word(now, wet))
+                weather_word(now, wet),
+                "  ~ music somewhere ~" if rave_window(now) is not None
+                and any(True for _ in near_clearings(v, 90.0)) else "")
         else:
             ch, co = render_skyline(sky_x, width, height, now)
             hud = SKYLINE_HUD % (sky_x, weather_word(now, rain_intensity(now)))

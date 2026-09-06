@@ -266,6 +266,25 @@ footing, its canopy height wandering along the clump so the top comes out ragged
 are barred from parks: the cell would be a clump of trees and would be drawn as one, so the venue
 would exist and be invisible.
 
+### The rig in the woods
+
+The one easter egg. Somebody carries a sound system into a park and does not ask anyone, and it is
+**rare twice over**, which is the whole of what makes it worth finding: rare in *space*, because
+`clearing_at()` wants an open park cell walled in by trees on most sides and at least two cells from
+any road, so most parks have none at all — about one per 2,700 park cells; and rare in *time*,
+because `rave_window()` is on roughly 7% of the time. Finding the clearing is not the same as
+finding a rave, and that is deliberate.
+
+What sells it is not the rig. It is the **canopy**: a lit clearing throws its colour up into the
+leaves around it, so `draw_tree_column()` swaps the leaf palette for the rig's when it is near one.
+That reads from about 45 units away — you see something going on in a wood long before you can see
+any of it — where the stack and the crowd only resolve in the last few metres. `v.rave` carries it,
+set before `draw_walls()` because a tree clump *is* a wall.
+
+`RAVE_BPM` is 168 against the club's 134, and `rave_light()` gives no colour wash between the kicks
+the way `club_light()` does, only dark. It is not a club. The HUD says `~ music somewhere ~` when one
+is on within 90 units, or you could stand next to it in the dark and never know.
+
 ### Getting lost is the feature
 
 The layout is deliberately irregular, because the point is to be able to lose yourself in it.
