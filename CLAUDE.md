@@ -266,6 +266,33 @@ footing, its canopy height wandering along the clump so the top comes out ragged
 are barred from parks: the cell would be a clump of trees and would be drawn as one, so the venue
 would exist and be invisible.
 
+### The night sky
+
+The city is always at night, so the sky is the one thing you look at that is not made of buildings.
+`night()` gives each night its own character off a hash of its number — clarity, the moon's phase and
+altitude, whether the milky way is up and at what tilt, how warm the starlight runs, how many
+meteors. Same night whenever you come back to it, and nothing like the next one.
+
+Two things about it are worth keeping:
+
+- **Stars go on visible cells, not over the hemisphere.** The first pass scattered them by bearing
+  with a random altitude, and from a street that put five in six behind a building: you got one or
+  two stars and no sense of a sky at all. They are keyed on `(bearing, row)` instead, which still
+  pins them to the compass so they hold still while you turn — there is a test that turns the camera
+  and checks not one of them moved.
+- **Most of them are faint.** 80% are `.` or `'`, 12% `*`, and under 1% the brightest. A sky where
+  every star is bright reads as static and the bright ones stop counting for anything. The colour
+  works the same way: mostly grey, a few warm and a few cold, and the milky way in its own dim blue.
+
+Clarity is the whole range from 0.22 to 1.0 with a median around 0.43, so a properly clear night is
+worth staying out for and most nights are not one. Cloud takes the sky away *by degrees* rather than
+at a threshold — `clear = clarity * (1 - wet/0.55)` — so a night can be half lost behind it, and a
+storm leaves none of it. The moon crosses through the night rather than sitting still, and at new
+moon there is simply no moon, which is a perfectly good night in its own right.
+
+`n` in the cheat menu steps to the next night. Nights are eleven minutes long, and waiting one out to
+see whether the next sky differs is not a way to look at anything.
+
 ### The rig in the woods
 
 The one easter egg. Somebody carries a sound system into a park and does not ask anyone, and it is

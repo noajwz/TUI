@@ -261,13 +261,14 @@ STAR = STREET = HUD = CURB = HAZE = SMOKE = EMBER = EMBER_HOT = 0
 RAIN = RAIN_FAR = BULB = BULB_DIM = FLASH = CONCRETE = 0
 GOLD = GOLD_DIM = ROU_RED = ROU_BLACK = ROU_GREEN = LANE = 0
 GRASS = BARK = ROOF = 0
+STAR_DIM = STAR_WARM = STAR_COLD = MOON = MOON_DIM = BAND = 0
 
 
 def init_colors():
     global PALETTES, NEON, STAR, STREET, HUD, CURB, HAZE, SMOKE, EMBER
     global EMBER_HOT, RAIN, RAIN_FAR, BULB, BULB_DIM, FLASH, CONCRETE
     global GOLD, GOLD_DIM, ROU_RED, ROU_BLACK, ROU_GREEN, LANE, GRASS, BARK
-    global ROOF
+    global ROOF, STAR_DIM, STAR_WARM, STAR_COLD, MOON, MOON_DIM, BAND
 
     curses.start_color()
     try:
@@ -299,7 +300,9 @@ def init_colors():
                   "flash": 231, "concrete": 234, "gold": 220,
                   "gold_dim": 136, "rou_red": 196, "rou_black": 252,
                   "rou_green": 46, "lane": 250, "grass": 22, "bark": 58,
-                  "roof": 252}
+                  "roof": 252, "star_dim": 244, "star_warm": 223,
+                  "star_cold": 153, "moon": 231, "moon_dim": 250,
+                  "band": 60}
         attrs = {}
     else:
         # 8-colour fallback: bold = the "bright" version of a colour.
@@ -331,7 +334,10 @@ def init_colors():
                   "rou_green": curses.COLOR_GREEN,
                   "lane": curses.COLOR_WHITE, "grass": curses.COLOR_GREEN,
                   "bark": curses.COLOR_BLACK,
-                  "roof": curses.COLOR_WHITE}
+                  "roof": curses.COLOR_WHITE, "star_dim": curses.COLOR_BLACK,
+                  "star_warm": curses.COLOR_YELLOW,
+                  "star_cold": curses.COLOR_CYAN, "moon": curses.COLOR_WHITE,
+                  "moon_dim": curses.COLOR_WHITE, "band": curses.COLOR_BLUE}
         attrs = {"near": curses.A_BOLD}
 
     pair = 1
@@ -382,6 +388,12 @@ def init_colors():
     GRASS = made["grass"]
     BARK = made["bark"]
     ROOF = made["roof"] | curses.A_BOLD
+    STAR_DIM = made["star_dim"]
+    STAR_WARM = made["star_warm"]
+    STAR_COLD = made["star_cold"]
+    MOON = made["moon"] | curses.A_BOLD
+    MOON_DIM = made["moon_dim"]
+    BAND = made["band"]
 
 
 def wide_chars_work(stdscr):
@@ -526,18 +538,52 @@ def blit(dst_ch, dst_co, b, sx, ground):
                 dst_co[y][x] = b["color"]
 
 
-def draw_stars(ch, co, cam_x, ground, wet):
-    """Stars, unless the cloud that is raining on you has come over."""
-    if wet > 0.25:
+def draw_stars(ch, co, cam_x, ground, wet, now):
+    """The same night as the street sees, over the water.
+
+    This is where a night actually gets to be a night: from a street you have a
+    strip of sky between the rooftops, and here you have all of it. Stars are
+    keyed on a slow scroll of the camera rather than a bearing, since there is
+    no turning in this view - drifting almost imperceptibly is what tells you
+    they are a very long way off."""
+    n = night(now)
+    clear = n["clarity"] * max(0.0, 1.0 - wet / 0.55)
+    if clear <= 0.02:
         return
     width = len(ch[0])
-    off = cam_x * 0.05          # stars drift very slowly = very far away
+    off = int(cam_x * 0.05)
+    top = max(1, ground - 3)
     for sx in range(width):
-        rng = random.Random(f"star|{int(sx + off)}")
-        if rng.random() < 0.07:
-            y = rng.randrange(0, max(1, ground - 4))
-            ch[y][sx] = rng.choice(".*'`")
-            co[y][sx] = STAR
+        col = sx + off
+        band_mid = (0.5 + n["tilt"] * math.sin(col * 0.012 - n["swing"])
+                    if n["band"] else None)
+        for y in range(top):
+            m = _mix(col, y, 71)
+            alt = 1.0 - y / float(top)
+            rate = 85.0 * clear
+            if band_mid is not None:
+                near = max(0.0, 1.0 - abs(alt - band_mid) / 0.19)
+                rate += 460.0 * clear * near
+            if (m % 1000) >= rate:
+                continue
+            glyph, attr = star_look(m, n["warmth"])
+            if (band_mid is not None and glyph == "."
+                    and abs(alt - band_mid) < 0.14):
+                attr = BAND
+            ch[y][sx] = glyph
+            co[y][sx] = attr
+
+    # The moon rides the same slow scroll, so it keeps its place among them.
+    face = moon_face(n["phase"])
+    if face and clear > 0.15:
+        bearing, alt = moon_dir(now)
+        mx = int(bearing / math.tau * width * 2.6 - off) % (width * 2) - width // 2
+        my = int(round((1.0 - alt) * (top - 1)))
+        dim = abs(n["phase"] - 0.5) * 2.0 > 0.34
+        for k, c in enumerate(face):
+            if 0 <= mx + k < width and 0 <= my < top:
+                ch[my][mx + k] = c
+                co[my][mx + k] = MOON_DIM if dim else MOON
 
 
 def draw_flash_sky(ch, co, water, flash):
@@ -648,7 +694,7 @@ def render_skyline(cam_x, width, height, now):
     ch = [[" "] * width for _ in range(height)]
     co = [[0] * width for _ in range(height)]
 
-    draw_stars(ch, co, cam_x, ground, wet)
+    draw_stars(ch, co, cam_x, ground, wet, now)
 
     for li, spec in enumerate(LAYERS):
         off = cam_x * spec["parallax"]   # nearer layers slide past faster
@@ -1737,7 +1783,97 @@ def draw_flash(ch, co, v, walls, flash):
                 rowc[sx] = FLASH
 
 
-def draw_sky(ch, co, v, walls, wet):
+STAR_TIERS = ((640, ".", "dim"), (860, "'", "dim"), (950, "*", "mid"),
+              (990, "+", "bright"), (1000, "o", "bright"))
+
+
+def star_look(m, warmth):
+    """One star's glyph and colour. Most of them are faint: a sky where every
+    star is bright reads as static, and the few that are bright stop counting
+    for anything."""
+    roll = (m >> 9) % 1000
+    for edge, glyph, tier in STAR_TIERS:
+        if roll < edge:
+            break
+    hue = (m >> 21) % 1000 / 1000.0
+    if tier == "dim":
+        attr = STAR_DIM
+    elif tier == "mid":
+        attr = STAR
+    else:
+        attr = STAR | curses.A_BOLD
+    if hue < warmth * 0.5:
+        attr = STAR_WARM
+    elif hue > 1.0 - warmth * 0.35:
+        attr = STAR_COLD
+    return glyph, attr
+
+
+def sky_col(v, bearing):
+    """Which screen column a compass bearing falls in, or None if it is not in
+    front of you. The inverse of the bearing the star field is keyed on."""
+    d = (bearing - v.yaw + math.pi) % math.tau - math.pi
+    if abs(d) > 1.3:
+        return None
+    cam = math.tan(d) / PLANE
+    if abs(cam) > 1.0:
+        return None
+    return int(round((cam + 1.0) * 0.5 * (v.width - 1)))
+
+
+def draw_moon(ch, co, v, tops, now, seen):
+    """The moon, if it is up and this side of the sky.
+
+    One or two characters and no glow around it. It is the only object in the
+    sky and it does not need help - anything more and it stops being a moon in
+    a city and starts being a poster."""
+    face = moon_face(night(now)["phase"])
+    if not face:
+        return
+    bearing, alt = moon_dir(now)
+    sx = sky_col(v, bearing)
+    if sx is None:
+        return
+    y = int(round((1.0 - alt) * (v.horizon - 2)))
+    dim = abs(night(now)["phase"] - 0.5) * 2.0 > 0.34
+    for k, c in enumerate(face):
+        x = sx + k
+        if 0 <= x < v.width and 0 <= y < tops[x] and y < v.horizon:
+            ch[y][x] = c
+            co[y][x] = MOON_DIM if dim else MOON
+            seen.add((y, x))
+
+
+def draw_meteor(ch, co, v, tops, now, seen):
+    """A streak, now and then, on the nights that have them. Short enough that
+    you are never sure you saw it, which is the whole of a meteor."""
+    n = night(now)
+    if not n["meteors"]:
+        return
+    slot = int(now / 3.0)
+    m = _mix(slot, 0, 887)
+    if m % max(2, 26 - n["meteors"] * 3):
+        return
+    t = (now / 3.0) % 1.0
+    if t > 0.22:
+        return
+    bearing = ((m >> 8) & 1023) / 1023.0 * math.tau
+    sx = sky_col(v, bearing)
+    if sx is None:
+        return
+    y0 = ((m >> 18) & 15) / 15.0 * 0.5 + 0.05
+    slope = 1.0 if (m >> 3) & 1 else -1.0
+    run = int(t / 0.22 * 9)
+    for k in range(max(0, run - 3), run + 1):
+        x = sx + int(k * slope)
+        y = int(round((y0 + k * 0.035) * (v.horizon - 2)))
+        if 0 <= x < v.width and 0 <= y < tops[x] and y < v.horizon:
+            ch[y][x] = "\\" if slope > 0 else "/"
+            co[y][x] = MOON if k == run else STAR_DIM
+            seen.add((y, x))
+
+
+def draw_sky(ch, co, v, walls, wet, now):
     """Stars, and a haze of distant roofs at the horizon.
 
     Drawn after the walls rather than before: an unlit window is a blank cell,
@@ -1751,18 +1887,44 @@ def draw_sky(ch, co, v, walls, wet):
     taller silhouette, which is what the rest of the city looks like from
     further away than anyone is going to draw it."""
     thin = 2 + int(3.0 * wet)
+    n = night(now)
+    # Cloud takes the sky away gradually rather than all at once at a
+    # threshold, so a night can be half lost behind it.
+    clear = n["clarity"] * max(0.0, 1.0 - wet / 0.55)
+    tops = [v.height if walls[0][sx] is None else walls[1][sx]
+            for sx in range(v.width)]
+    seen = set()
+
     for sx in range(v.width):
-        empty = walls[0][sx] is None
-        top = v.height if empty else walls[1][sx]
+        top = tops[sx]
         cam = 2.0 * sx / (v.width - 1) - 1.0
-        bearing = int((v.yaw + math.atan(cam * PLANE)) * 90.0)
-        if wet < 0.25:
-            m = _mix(bearing, 0, 71)
-            if m % 100 < 9:
-                y = (m >> 8) % max(1, v.horizon)
-                if y < top:
-                    ch[y][sx] = ".*'`"[(m >> 20) & 3]
-                    co[y][sx] = STAR
+        rad = v.yaw + math.atan(cam * PLANE)
+        bearing = int(rad * 90.0)
+        if clear > 0.02:
+            # Per visible cell, not per bearing with a random height: from a
+            # street the rooftops hide five sixths of the sky, so stars
+            # scattered over the whole hemisphere nearly all land behind a
+            # building and you get one or two. Keyed on (bearing, row), which
+            # still holds them still while you turn.
+            band_mid = (0.5 + n["tilt"] * math.sin(rad - n["swing"])
+                        if n["band"] else None)
+            for y in range(min(top, v.horizon)):
+                m = _mix(bearing, y, 71)
+                alt = 1.0 - y / float(max(1, v.horizon - 1))
+                rate = 85.0 * clear
+                if band_mid is not None:
+                    near = max(0.0, 1.0 - abs(alt - band_mid) / 0.19)
+                    rate += 460.0 * clear * near
+                if (m % 1000) >= rate:
+                    continue
+                glyph, attr = star_look(m, n["warmth"])
+                if (band_mid is not None and glyph == "."
+                        and abs(alt - band_mid) < 0.14):
+                    attr = BAND
+                ch[y][sx] = glyph
+                co[y][sx] = attr
+                seen.add((y, sx))
+        empty = walls[0][sx] is None
         deep = _mix(bearing // 3, 2, 17) % 7 if empty else 0
         for d in range(max(deep, _mix(bearing, 1, 3) % thin)):
             y = v.horizon - 1 - d
@@ -1776,6 +1938,10 @@ def draw_sky(ch, co, v, walls, wet):
                 if _mix(sx, y, 29) % 100 < v.flash * 96:
                     ch[y][sx] = "." if v.flash < 0.5 else ":"
                     co[y][sx] = FLASH
+
+    if clear > 0.15:
+        draw_moon(ch, co, v, tops, now, seen)
+        draw_meteor(ch, co, v, tops, now, seen)
 
 
 GLOW_CELL = 1.6
@@ -2661,6 +2827,74 @@ def club_light(now, club):
     return None
 
 
+NIGHT_LENGTH = 690.0    # how long one night lasts, before the next one
+_night_cache = {}
+_night_skip = 0.0       # nights the menu has stepped over
+
+
+def skip_night():
+    """On to the next one. Waiting eleven minutes to see whether the next sky
+    is any different is not a way to look at anything."""
+    global _night_skip
+    _night_skip += NIGHT_LENGTH
+    return int((_night_skip / NIGHT_LENGTH) % 1000)
+
+
+def night(now):
+    """What kind of night this is.
+
+    Everything comes off a hash of the night's number, so it is the same night
+    whenever you come back to it, and the next one is nothing like it. Keep the
+    ranges narrow: a sky that changes a lot between nights stops reading as
+    weather and starts reading as a different program."""
+    k = int((now + _night_skip) / NIGHT_LENGTH)
+    got = _night_cache.get(k)
+    if got is None:
+        if len(_night_cache) > 400:
+            _night_cache.clear()
+        m = _mix(k, 0, 613)
+        got = {
+            # Squared, so most nights are middling and a properly clear one is
+            # worth staying out for.
+            "clarity": 0.22 + (((m & 255) / 255.0) ** 1.7) * 0.78,
+            "phase": ((m >> 8) & 255) / 255.0,        # 0 new, 0.5 full, 1 new
+            "alt": 0.30 + ((m >> 16) & 31) / 31.0 * 0.55,
+            "swing": ((m >> 21) & 255) / 255.0 * math.tau,
+            "band": (m >> 4) % 3 == 0,                # the milky way is up
+            "tilt": (((m >> 6) & 15) / 15.0 - 0.5) * 0.66,
+            "warmth": 0.15 + ((m >> 11) & 15) / 15.0 * 0.4,
+            "meteors": (m >> 29) & 7,
+        }
+        _night_cache[k] = got
+    return got
+
+
+def moon_dir(now):
+    """Where the moon is: bearing in radians, and height up the sky.
+
+    It crosses through the night rather than sitting still, which is most of
+    what makes one night feel like a different night from the last."""
+    n = night(now)
+    t = ((now + _night_skip) % NIGHT_LENGTH) / NIGHT_LENGTH
+    climb = 0.55 + 0.45 * math.sin(math.pi * t)
+    return n["swing"] + (t - 0.5) * 1.6, n["alt"] * climb
+
+
+def moon_face(phase):
+    """The moon as one or two characters. New is nothing at all, which is a
+    perfectly good night in its own right."""
+    p = abs(phase - 0.5) * 2.0          # 0 full, 1 new
+    if p > 0.88:
+        return ""
+    if p > 0.62:
+        return ")" if phase < 0.5 else "("
+    if p > 0.34:
+        return "D" if phase < 0.5 else "C"
+    if p > 0.12:
+        return "O"
+    return "()"
+
+
 def weather_word(now, wet):
     if storming(now):
         return "storm"
@@ -2760,7 +2994,7 @@ def render_street(v, now):
             v.rave = best[1:]
 
     walls = draw_walls(ch, co, v, now)
-    draw_sky(ch, co, v, walls, wet)
+    draw_sky(ch, co, v, walls, wet, now)
     draw_ground(ch, co, v, walls, collect_glow(v, now, wet), wet, now)
     draw_flash(ch, co, v, walls, v.flash)
     draw_props(ch, co, v, walls, now, wet)
@@ -3310,7 +3544,8 @@ def draw_cheats(ch, co, note):
     height, width = len(ch), len(ch[0])
     left = [("", "CHEATS")]
     left += [(k, name) for k, name, _ in CHEAT_PLACES]
-    left += [("", ""), ("w", "weather: " + weather_name()), ("L", "strike now")]
+    left += [("", ""), ("w", "weather: " + weather_name()),
+             ("L", "strike now"), ("n", "next night")]
     right = [("", "PARTS OF TOWN")]
     right += [(d["key"], d["name"]) for d in DISTRICTS]
     right += [("", ""), ("`", "close")]
@@ -3513,6 +3748,13 @@ def main(stdscr):
                 elif key == ord("L"):
                     force_strike(now)
                     note = "lightning"
+                elif key == ord("n"):
+                    skip_night()
+                    nt = night(now)
+                    note = "night: %s, %s moon" % (
+                        "hazy" if nt["clarity"] < 0.4 else
+                        "clear" if nt["clarity"] > 0.75 else "middling",
+                        moon_face(nt["phase"]) or "no")
                 else:
                     jumps = [(k, name, kind) for k, name, kind in CHEAT_PLACES]
                     jumps += [(d["key"], d["name"], "@%d" % n)
