@@ -346,19 +346,49 @@ eight seconds, fading up and out so it arrives rather than switching on. No expl
 `A` in the cheat menu goes straight to one, and the HUD says `~ something over the city ~`. Both
 matter — one night in forty is unreachable by waiting, and from a street you might not look up.
 
-### Planned: the river, and bridges over it
+### The river
 
-Wanted, in this order: **a river**, a **pier** off the docks, and later **bridges with lights on
-them**. The bridges are the destination — the river exists so there is something to put them over —
-so leave room for them: a crossing wants to be a thing in its own right, with a deck you walk along,
-a span you can see the shape of from the water, and lights down it.
+**Water is the first cell in this city that is neither open nor solid.** `is_open()` used to answer
+both "can you see through it" and "can you be here"; those two questions come apart at the water's
+edge. `is_open()` is now the sight test and says yes to water — you can see clean across a river —
+and `dry_at()` is the footing test that `can_stand()` is built from. Anything that means "a building
+stands here" keys off `not is_open()` and so ignores water for free; `clearing_at()` needed an
+explicit no, because a bank cell can otherwise pass its tests.
 
-The river is the first thing in this city that is neither open nor solid. Every cell so far is one
-or the other, and `is_open()` answers both "can you see through it" and "can you be here". Water is
-**see-through but not standable**, so those two questions have to come apart: `is_open()` stays the
-sight test and says yes to water, and `can_stand()` gains a water test of its own. Everything that
-means "there is a building here" — alleys, clearings, `near_lots()` — has to reject water first, or
-the generator will try to put a fire escape on a wave.
+`river_centre(i)` is three sines, so the channel **meanders across the grid** and cuts blocks off
+mid-street — it swings about 330 world units side to side. `river_span(i)` widens the band by the
+slope of the meander, and that is not a nicety: `|j - centre|` is measured straight across, so on a
+bend the band is a slanted strip and the channel would pinch to about half its width *exactly where
+it turns*, which is the one place a river gets wider. Measured, bends now come out 6.7 cells across
+against 6.8 on the straights.
+
+**Crossings are one avenue in four** (`BRIDGE_ODDS`). Every avenue would be a crossing every 45
+units, and a river you can step over anywhere is a boardwalk with a puddle under it. There is a test
+that you can still walk from one bank to the other, because a river that cuts the city in half is a
+bug however good it looks.
+
+**Piers** reach out from the near bank and stop — at most half way over, never a fixed length. The
+channel narrows to under five cells on some stretches, and a fixed seven-cell pier there quietly
+spans it: you would have built a footbridge and called it a pier. The point of one is that it *ends*,
+and you stand at the end with the whole city behind you — a view the street view does not otherwise
+have.
+
+The cheat menu reaches water differently from everywhere else: **not a ring search**. There is one
+river, at a known place, so walking outward looking for it fails from anywhere more than a couple of
+hundred cells away in j — which is most of an infinite city. `_water_spot()` goes straight to the
+channel at your x and works along it.
+
+### Planned: bridges with lights
+
+The crossings are **building sites**, deliberately: hoardings with amber lamps blinking out of step,
+a hazard board at each bank, a crane over the gap, and a plank walkway you can already get across on.
+That is the placeholder. The real bridges go exactly there, and want to be a thing in their own
+right — a deck you walk along, a span you can see the shape of from the water, and lights down it.
+
+Note for the works board: it carries **no words**. A sign in world space is squashed by perspective
+to about a column a letter, and at any range you would actually read it from, the letters double up
+— the same thing that moved the casino marquee into screen space. A hazard triangle says roadworks
+without asking anyone to read.
 
 **A note kept on purpose, for whenever the woods rave is rebuilt:** the rig in the trees ought to
 know. Whoever carried a sound system into a park on the one night in forty that the sky has

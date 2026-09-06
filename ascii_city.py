@@ -765,6 +765,90 @@ def render_skyline(cam_x, width, height, now):
 #   - the odd cell inside a block is missing altogether: a yard you can stand in
 # ---------------------------------------------------------------------------
 
+# --- the river -------------------------------------------------------------
+# It runs along i and wanders across j, so it cuts the street grid at an angle
+# and no two stretches of bank are alike. Water is the first cell in this city
+# that is neither open nor solid: you can see across a river but not walk on
+# it, so is_open() (which answers "does light get through") says yes and
+# can_stand() has a test of its own.
+RIVER_HALF = 3.4       # half the channel, in cells, before the wobble
+_river_cache = {}
+
+
+def river_centre(i):
+    """Where the middle of the channel is, in cells across."""
+    return (26.0 * math.sin(i / 55.0)
+            + 8.0 * math.sin(i / 23.0 + 1.7)
+            + 3.0 * math.sin(i / 11.0 + 0.4))
+
+
+def river_span(i):
+    """(near bank, far bank) in cells, for this step along the channel.
+
+    Widened by the slope of the meander: the band is measured straight across,
+    so on a steep bend it is a slanted strip and the channel would pinch to
+    half its width exactly where it turns - which is the one place a river gets
+    wider, not narrower."""
+    mid = river_centre(i)
+    slope = (river_centre(i + 1) - river_centre(i - 1)) * 0.5
+    half = ((RIVER_HALF + 1.1 * math.sin(i / 17.0 + 2.2))
+            * math.sqrt(1.0 + slope * slope))
+    return mid - half, mid + half
+
+
+def river_at(i, j):
+    key = i * 1048576 + j
+    hit = _river_cache.get(key)
+    if hit is None:
+        _evict(_river_cache, 60000)
+        lo, hi = river_span(i)
+        hit = lo < j < hi
+        _river_cache[key] = hit
+    return hit
+
+
+PIER_LEN = 7           # how far one reaches out, at most
+PIER_WIDE = 3          # and how many cells across it is
+
+
+def pier_at(i, j):
+    """A pier: a walkable finger of decking out over the water.
+
+    Off the near bank only, a few cells wide, and it stops well short of the
+    far side - the point of one is that it ends, and you stand at the end of it
+    with the whole city behind you. That view does not otherwise exist from
+    inside the street."""
+    if not river_at(i, j) or _mix(i // PIER_WIDE, 0, 457) % 19:
+        return False
+    lo, hi = river_span(i)
+    # Never more than half way over. The channel narrows to under five cells on
+    # some stretches, and a fixed seven-cell pier there quietly spans it - you
+    # would have built a footbridge and called it a pier.
+    return lo < j < lo + min(PIER_LEN, (hi - lo) * 0.5)
+
+
+def deck_at(i, j):
+    """Anything over the water you can put a foot on."""
+    return bridge_at(i, j) or pier_at(i, j)
+
+
+BRIDGE_ODDS = 4        # one avenue in this many gets a crossing
+
+
+def bridge_at(i, j):
+    """A crossing: where an avenue running across the river meets the water.
+
+    Not every avenue - one in four. Every avenue would be a crossing every
+    forty-five units, and a river you can step over anywhere is a boardwalk
+    with a puddle under it. At one in four you walk the bank to find one, which
+    is what makes a bridge worth having.
+
+    They are all building sites for now - hoardings, a crane and a plank deck
+    you can get over on. The real bridges go here."""
+    return (river_at(i, j) and _is_road(i, XP, 91)
+            and _mix(i // XP, 0, 719) % BRIDGE_ODDS == 0)
+
+
 _open_cache = {}
 _road_cache = {}
 
@@ -843,7 +927,7 @@ def clearing_at(i, j):
     if hit is None:
         _evict(_clearing_cache, 40000)
         hit = False
-        if (park_core(i, j) and is_open(i, j)
+        if (park_core(i, j) and is_open(i, j) and not river_at(i, j)
                 and not road_at(i, j) and _mix(i, j, 733) % RAVE_ODDS_SPACE == 0):
             trees = sum(not is_open(i + a, j + b)
                         for a in (-1, 0, 1) for b in (-1, 0, 1) if a or b)
@@ -933,7 +1017,9 @@ def is_open(i, j):
     hit = _open_cache.get(key)
     if hit is None:
         _evict(_open_cache, 60000)
-        if DISTRICTS[district_at(i, j)]["park"]:
+        if river_at(i, j):
+            hit = True          # you can see across it; standing is elsewhere
+        elif DISTRICTS[district_at(i, j)]["park"]:
             # Roads still cross a park; everything else is grass, but for the
             # clumps of trees - which are solid, so the renderer and the
             # collision both already know what to do with them. The wood
@@ -977,9 +1063,18 @@ def open_at(x, z):
     return is_open(int(x / CELL + BIG) - BIG, int(z / CELL + BIG) - BIG)
 
 
+def dry_at(x, z):
+    """Open, and not water - which is what your feet care about."""
+    i = int(x / CELL + BIG) - BIG
+    j = int(z / CELL + BIG) - BIG
+    if not is_open(i, j):
+        return False
+    return not river_at(i, j) or deck_at(i, j)
+
+
 def can_stand(x, z):
-    return (open_at(x - BODY, z) and open_at(x + BODY, z)
-            and open_at(x, z - BODY) and open_at(x, z + BODY))
+    return (dry_at(x - BODY, z) and dry_at(x + BODY, z)
+            and dry_at(x, z - BODY) and dry_at(x, z + BODY))
 
 
 # ---------------------------------------------------------------------------
@@ -2051,7 +2146,9 @@ def collect_glow(v, now, wet):
                 continue
             fc = b["faces"][f]
             if face_kind(i + nx, j + nz):
-                if wet < 0.12:
+                # Neon reaches the water whatever the weather - a river does
+                # not need rain to be wet.
+                if wet < 0.12 and not river_at(i + nx * 3, j + nz * 3):
                     continue
                 for s in (fc["flat"], fc["hung"]):
                     if s is None:
@@ -2118,7 +2215,12 @@ def draw_ground(ch, co, v, walls, glow, wet, now):
                 x0, y0 = i * CELL, j * CELL
                 # Only the wider streets are marked, and never through a
                 # junction - which is also how it works outside.
-                green = DISTRICTS[district_at(i, j)]["park"] and not road_at(i, j)
+                wet_cell = river_at(i, j)
+                deck = wet_cell and deck_at(i, j)
+                pier = wet_cell and pier_at(i, j)
+                green = (not wet_cell
+                         and DISTRICTS[district_at(i, j)]["park"]
+                         and not road_at(i, j))
                 lane = None
                 if not solid:
                     along_x = road_span(i, XP, 91)
@@ -2148,7 +2250,31 @@ def draw_ground(ch, co, v, walls, glow, wet, now):
 
             g = glow.get(((int(x / GLOW_CELL + BIG) - BIG) * 65536)
                          + (int(z / GLOW_CELL + BIG) - BIG))
-            if green:
+            if deck:
+                # Planks. A pier is properly laid; a crossing is a builder's
+                # walkway over a bridge nobody has finished.
+                if pier:
+                    if _mix(int(x * 1.6), int(z * 1.6), 37) % 3:
+                        continue
+                    glyph, attr = "=", CURB
+                else:
+                    if _mix(int(x * 2.0), int(z * 2.0), 37) % 4:
+                        continue
+                    glyph, attr = "=", CURB
+            elif wet_cell:
+                # Water. It moves along the channel, and it takes whatever the
+                # city is putting out: the glow map is already worked out for
+                # the wet road, and a river is wetter than any road.
+                h = _mix(int(x * 2.0) - int(now * 1.6), int(z * 2.0), 29)
+                if g is not None and h % 3 == 0:
+                    glyph, attr = ":", g
+                elif h % 4 == 0:
+                    glyph, attr = "~", RAIN_FAR
+                elif h % 11 == 0:
+                    glyph, attr = "-", STREET
+                else:
+                    continue
+            elif green:
                 h = _mix(int(x * 3.0), int(z * 3.0), 23)
                 if h % 3:
                     continue
@@ -2675,6 +2801,85 @@ def near_clearings(v, reach):
                 continue
             if clearing_at(i, j):
                 yield i, j
+
+
+# No words on it. A board in world space is squashed by perspective to about
+# a column a letter, and at any range you would actually read it from the
+# letters double up - the same thing that made the casino marquee move into
+# screen space. A hazard board says roadworks without asking anyone to read.
+WORKS_SIGN = [
+    " ,-. ",
+    "/ ! \\",
+    "-----",
+    "  |  ",
+    "  |  ",
+]
+
+
+def draw_worksite(ch, co, v, walls, i, j, now, wet):
+    """A bridge nobody has finished, and the paraphernalia of not finishing it.
+
+    Hoardings down both edges of the walkway with an amber lamp on top of every
+    other post, a board at the bank end, and a crane standing over the middle
+    of it. The lamps blink out of step with each other - a row of them in
+    perfect time reads as decoration rather than as roadworks."""
+    lo, hi = river_span(i)
+    x0 = (i + 0.5) * CELL
+    for side in (0, 1):
+        jz = (lo if side else hi)
+        z = (jz + (0.6 if side else -0.6)) * CELL
+        for k in range(3):
+            px = x0 + (k - 1) * 1.7
+            put_point(ch, co, v, walls, px, 0.95, z, "#", CURB)
+            put_point(ch, co, v, walls, px, 0.55, z, "|", CURB)
+            if (k + side) % 2 == 0:
+                # An amber lamp, blinking on its own count.
+                m = _mix(i, int(jz) + k, 611)
+                if ((now * 1.4 + (m & 255) / 255.0) % 1.0) < 0.55:
+                    put_lit(ch, co, v, walls, px, 1.25, z, "o", EMBER_HOT,
+                            max(wet, 0.35), now)
+
+    # The board, on the bank, facing whoever is walking up to it.
+    for end, out in ((hi, 1.5), (lo, -1.5)):
+        bz = (end + out) * CELL
+        blit_sprite(ch, co, v, walls, WORKS_SIGN, x0 - 1.6, bz,
+                    0.0, 2.6, 1.6, GOLD)
+
+    # And the crane. Mast out of the water, jib over the gap.
+    mx = x0 + 2.2
+    mz = (lo + hi) * 0.5 * CELL
+    for h in range(14):
+        put_point(ch, co, v, walls, mx, 1.0 + h * 1.1, mz, "#", CONCRETE)
+    for k in range(9):
+        put_point(ch, co, v, walls, mx - 1.0 - k * 1.3, 15.4, mz, "=", CONCRETE)
+    put_point(ch, co, v, walls, mx - 5.0, 15.4, mz, "|", CONCRETE)
+    put_point(ch, co, v, walls, mx - 5.0, 13.0, mz, "o", CURB)
+    if int(now * 0.9) % 2:
+        put_lit(ch, co, v, walls, mx, 16.6, mz, "*", EMBER_HOT, max(wet, 0.3), now)
+
+
+def near_worksites(v, reach):
+    """The middle of each crossing in front of you, one per site."""
+    n = int(reach / CELL) + 1
+    ci = int(v.x / CELL + BIG) - BIG
+    cj = int(v.z / CELL + BIG) - BIG
+    seen = set()
+    for i in range(ci - n, ci + n + 1):
+        lo0, hi0 = river_span(i)
+        if i in seen or not bridge_at(i, int((lo0 + hi0) * 0.5)):
+            continue
+        rx = (i + 0.5) * CELL - v.x
+        lo, hi = river_span(i)
+        mid = (lo + hi) * 0.5
+        rz = (mid + 0.5) * CELL - v.z
+        if rx * v.dx + rz * v.dz < -CELL or rx * rx + rz * rz > reach * reach:
+            continue
+        # One per crossing, not one per cell of it.
+        for k in range(i - 3, i + 1):
+            if bridge_at(k, int(mid)) and not bridge_at(k - 1, int(mid)):
+                seen.add(i)
+                yield k, int(mid)
+                break
 
 
 def near_lots(v, reach):
@@ -3312,6 +3517,8 @@ def render_street(v, now):
     draw_props(ch, co, v, walls, now, wet)
     for i, j in near_yokocho(v, 55.0):
         draw_lantern_string(ch, co, v, walls, i, j, now)
+    for i, j in near_worksites(v, 85.0):
+        draw_worksite(ch, co, v, walls, i, j, now, wet)
     if rave_window(now) is not None:
         for i, j in near_clearings(v, 70.0):
             draw_woods_rave(ch, co, v, walls, i, j, now, wet)
@@ -3616,6 +3823,9 @@ CHEAT_PLACES = [
     ("9", "inside a casino", "inside"),
     ("0", "inside the club", "clubdoor"),
     ("R", "the woods rave", "clearing"),
+    ("t", "the riverbank", "bank"),
+    ("j", "end of a pier", "pier"),
+    ("b", "a bridge site", "bridge"),
 ]
 
 
@@ -3767,6 +3977,53 @@ def _district_spot(x, z, want):
     return None
 
 
+def _water_spot(x, z, kind):
+    """Somewhere on, or looking at, the river.
+
+    Not a ring search like the rest of the menu: there is one river and it is
+    at a known place, so walking outward looking for it fails from anywhere
+    more than a couple of hundred cells away in j - which is most of an
+    infinite city. Go straight to the channel at this x and work along it.
+
+    The bank faces across the water; the pier puts you at the far end of one
+    looking back at the city, which is the view it exists for; a bridge site
+    stands you on the road up to it with the whole works in front of you."""
+    ci = int(x / CELL + BIG) - BIG
+    for step in range(0, CHEAT_RINGS * 3):
+        i = ci + (step + 1) // 2 * (1 if step % 2 else -1)
+        lo, hi = river_span(i)
+        if kind == "pier":
+            # The last plank, whichever it is: a pier is cut short on a narrow
+            # stretch, so counting a fixed number out from the bank lands in
+            # the water as often as not.
+            end = None
+            for k in range(int(lo), int(lo) + PIER_LEN + 2):
+                if pier_at(i, k):
+                    end = k
+            if end is None:
+                continue
+            px, pz = (i + 0.5) * CELL, (end + 0.5) * CELL
+            if can_stand(px, pz):
+                return px, pz, 0.0          # looking back up the pier
+            continue
+        if kind == "bridge":
+            mid = int((lo + hi) * 0.5)
+            if not (bridge_at(i, mid) and not bridge_at(i - 1, mid)):
+                continue
+            for back in range(2, 16):
+                px, pz = (i + 1.5) * CELL, (hi + back) * CELL
+                if can_stand(px, pz):
+                    return px, pz, math.pi
+            continue
+        # The bank: the first dry cell out from the water, facing it.
+        for out in range(1, 8):
+            j = int(hi) + out
+            px, pz = (i + 0.5) * CELL, (j + 0.5) * CELL
+            if not river_at(i, j) and can_stand(px, pz):
+                return px, pz, math.pi
+    return None
+
+
 def _clearing_spot(x, z):
     """Stand at the edge of the clearing looking in, which is how you would
     come across it. Note this only takes you there - whether anything is
@@ -3825,6 +4082,8 @@ def find_place(x, z, kind):
         return _doorway(x, z, 909, "club")
     if kind == "clearing":
         return _clearing_spot(x, z)
+    if kind in ("bank", "pier", "bridge"):
+        return _water_spot(x, z, kind)
     if kind.startswith("@"):
         return _district_spot(x, z, int(kind[1:]))
 
