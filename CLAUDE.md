@@ -293,6 +293,32 @@ moon there is simply no moon, which is a perfectly good night in its own right.
 `n` in the cheat menu steps to the next night. Nights are eleven minutes long, and waiting one out to
 see whether the next sky differs is not a way to look at anything.
 
+### The night the sky has something in it
+
+One night in forty — about seven hours of walking between them — the sky is not stars. `night()`
+sets `alien`, which forces clarity to 1.0 and the milky way up (whatever the weather was going to
+do up there, the sky is lit by what is in it), and then `alien_light()` runs the whole field on the
+same four-to-the-floor the club does: the stars pulse through the neon palette, the kick takes all
+of them white at once, `draw_sky_beams()` swings beams across from somewhere past the horizon, and
+three craft drift over with their rim lights going round.
+
+Two things worth keeping:
+
+- **A beam washes over the stars, it does not thread between them.** The first version only drew
+  into blank cells, which works on an ordinary night and vanishes completely on this one, because
+  there are no blank cells left. It still stops dead at the rooftops, which is what keeps it a thing
+  happening *over* the city rather than a filter laid on the picture.
+- **The density has to go up, not just the colour.** Recolouring a clear night's starfield left the
+  sky filling 11% of itself either way — the same picture in different paint. It goes to about a
+  quarter, which is what makes it read from a street, where you only ever see a strip of sky between
+  the rooftops.
+
+`SkyBox` exists so the sky effects can draw into the waterfront view too: they want a width and a
+horizon, and the street's `View` carries a camera the skyline has no use for.
+
+`A` in the cheat menu goes straight to one, and the HUD says `~ something over the city ~`. Both
+matter — one night in forty is unreachable by waiting, and from a street you might not look up.
+
 ### The rig in the woods
 
 The one easter egg. Somebody carries a sound system into a park and does not ask anyone, and it is

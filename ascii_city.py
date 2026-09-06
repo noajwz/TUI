@@ -561,6 +561,8 @@ def draw_stars(ch, co, cam_x, ground, wet, now):
             m = _mix(col, y, 71)
             alt = 1.0 - y / float(top)
             rate = 85.0 * clear
+            if n["alien"]:
+                rate += 190.0
             if band_mid is not None:
                 near = max(0.0, 1.0 - abs(alt - band_mid) / 0.19)
                 rate += 460.0 * clear * near
@@ -570,8 +572,18 @@ def draw_stars(ch, co, cam_x, ground, wet, now):
             if (band_mid is not None and glyph == "."
                     and abs(alt - band_mid) < 0.14):
                 attr = BAND
+            if n["alien"]:
+                attr = alien_light(now, (m >> 6) & 7)
+                if glyph == ".":
+                    glyph = "*'+"[(m >> 3) % 3]
             ch[y][sx] = glyph
             co[y][sx] = attr
+
+    if n["alien"]:
+        sky = SkyBox(width, top)
+        tops = [top] * width
+        draw_sky_beams(ch, co, sky, tops, now, set())
+        draw_saucers(ch, co, sky, tops, now, set())
 
     # The moon rides the same slow scroll, so it keeps its place among them.
     face = moon_face(n["phase"])
@@ -1783,6 +1795,18 @@ def draw_flash(ch, co, v, walls, flash):
                 rowc[sx] = FLASH
 
 
+class SkyBox:
+    """Just enough of a View for the sky effects to draw into the skyline.
+
+    They want a width and a horizon and nothing else - the street's View
+    carries a camera the waterfront has no use for."""
+
+    def __init__(self, width, horizon):
+        self.width = width
+        self.horizon = horizon
+        self.height = horizon
+
+
 STAR_TIERS = ((640, ".", "dim"), (860, "'", "dim"), (950, "*", "mid"),
               (990, "+", "bright"), (1000, "o", "bright"))
 
@@ -1912,6 +1936,8 @@ def draw_sky(ch, co, v, walls, wet, now):
                 m = _mix(bearing, y, 71)
                 alt = 1.0 - y / float(max(1, v.horizon - 1))
                 rate = 85.0 * clear
+                if n["alien"]:
+                    rate += 190.0     # the sky is the rig tonight
                 if band_mid is not None:
                     near = max(0.0, 1.0 - abs(alt - band_mid) / 0.19)
                     rate += 460.0 * clear * near
@@ -1921,6 +1947,10 @@ def draw_sky(ch, co, v, walls, wet, now):
                 if (band_mid is not None and glyph == "."
                         and abs(alt - band_mid) < 0.14):
                     attr = BAND
+                if n["alien"]:
+                    attr = alien_light(now, (m >> 6) & 7)
+                    if glyph == ".":
+                        glyph = "*'+"[(m >> 3) % 3]
                 ch[y][sx] = glyph
                 co[y][sx] = attr
                 seen.add((y, sx))
@@ -1939,6 +1969,9 @@ def draw_sky(ch, co, v, walls, wet, now):
                     ch[y][sx] = "." if v.flash < 0.5 else ":"
                     co[y][sx] = FLASH
 
+    if n["alien"]:
+        draw_sky_beams(ch, co, v, tops, now, seen)
+        draw_saucers(ch, co, v, tops, now, seen)
     if clear > 0.15:
         draw_moon(ch, co, v, tops, now, seen)
         draw_meteor(ch, co, v, tops, now, seen)
@@ -2828,8 +2861,27 @@ def club_light(now, club):
 
 
 NIGHT_LENGTH = 690.0    # how long one night lasts, before the next one
+
+# Once in a great while the sky has something else going on in it. One night in
+# forty, so about seven hours of walking between them - it is meant to be the
+# thing you tell someone about, not a feature you get used to.
+ALIEN_ODDS = 40
+ALIEN_BPM = 141.0
 _night_cache = {}
 _night_skip = 0.0       # nights the menu has stepped over
+
+
+def skip_to_alien(now):
+    """Straight to the next night that has something in it.
+
+    One night in forty is about seven hours of walking, and stepping there a
+    night at a time is not much better - the menu exists to reach things."""
+    global _night_skip
+    for _ in range(ALIEN_ODDS * 8):
+        _night_skip += NIGHT_LENGTH
+        if night(now)["alien"]:
+            return True
+    return False
 
 
 def skip_night():
@@ -2864,9 +2916,75 @@ def night(now):
             "tilt": (((m >> 6) & 15) / 15.0 - 0.5) * 0.66,
             "warmth": 0.15 + ((m >> 11) & 15) / 15.0 * 0.4,
             "meteors": (m >> 29) & 7,
+            "alien": (m >> 24) % ALIEN_ODDS == 0,
         }
+        if got["alien"]:
+            # Whatever the weather was going to be up there, the sky is lit by
+            # what is in it tonight.
+            got["clarity"] = 1.0
+            got["band"] = True
         _night_cache[k] = got
     return got
+
+
+def alien_light(now, k):
+    """What the sky is doing this instant on the night it is doing something.
+
+    The same four-to-the-floor the club runs on, because that is what a beat
+    looks like in this program, but the whole sky is the rig: k walks the
+    colour round so the field shifts rather than blinking on and off in one
+    colour, and the kick takes everything white at once."""
+    t = now * ALIEN_BPM / 60.0
+    beat = t % 1.0
+    if (int(t) // 4) % 8 == 7 and int(t * 6) % 2:
+        return FLASH                    # the run that ends a phrase
+    if beat < 0.13:
+        return FLASH
+    return NEON[(k + int(t)) % len(NEON)][0 if beat < 0.55 else 1]
+
+
+def draw_sky_beams(ch, co, v, tops, now, seen):
+    """Beams swung across the whole sky from somewhere out past the horizon.
+
+    Drawn on the sky only - they stop dead at the rooftops, which is what keeps
+    it a thing happening above the city rather than a filter over the picture."""
+    t = now * ALIEN_BPM / 60.0
+    for k in range(4):
+        a = math.sin(t * (0.09 + k * 0.031) + k * 2.1)
+        col = int((0.5 + 0.5 * a) * (v.width - 1))
+        attr = NEON[(k + int(t / 4)) % len(NEON)][0]
+        glyph = "\\" if a > 0.25 else ("/" if a < -0.25 else "|")
+        for y in range(v.horizon):
+            x = col + int((v.horizon - y) * a * 1.9)
+            # A beam washes over the stars rather than threading between them:
+            # made to fit in the gaps it disappears entirely, because on this
+            # night there are no gaps left. It still stops at the rooftops,
+            # which is what keeps it a thing happening over the city.
+            if 0 <= x < v.width and y < tops[x]:
+                ch[y][x] = glyph
+                co[y][x] = attr
+                seen.add((y, x))
+
+
+SAUCER = "<-o->"
+
+
+def draw_saucers(ch, co, v, tops, now, seen):
+    """Three of them, crossing slowly, lights going round the rim."""
+    t = now * ALIEN_BPM / 60.0
+    for k in range(3):
+        m = _mix(k, 0, 991)
+        drift = (now * (0.03 + k * 0.012) + (m & 255) / 255.0) % 1.0
+        x0 = int(drift * (v.width + 12)) - 6
+        y = 1 + (m >> 9) % max(1, v.horizon - 3)
+        for i, c in enumerate(SAUCER):
+            x = x0 + i
+            if not (0 <= x < v.width and 0 <= y < tops[x] and y < v.horizon):
+                continue
+            ch[y][x] = c
+            co[y][x] = (NEON[(i + int(t * 2)) % len(NEON)][0]
+                        if c == "-" else MOON)
+            seen.add((y, x))
 
 
 def moon_dir(now):
@@ -3545,7 +3663,8 @@ def draw_cheats(ch, co, note):
     left = [("", "CHEATS")]
     left += [(k, name) for k, name, _ in CHEAT_PLACES]
     left += [("", ""), ("w", "weather: " + weather_name()),
-             ("L", "strike now"), ("n", "next night")]
+             ("L", "strike now"), ("n", "next night"),
+             ("A", "a strange night")]
     right = [("", "PARTS OF TOWN")]
     right += [(d["key"], d["name"]) for d in DISTRICTS]
     right += [("", ""), ("`", "close")]
@@ -3748,6 +3867,9 @@ def main(stdscr):
                 elif key == ord("L"):
                     force_strike(now)
                     note = "lightning"
+                elif key == ord("A"):
+                    note = ("the sky is busy tonight"
+                            if skip_to_alien(now) else "no such night near")
                 elif key == ord("n"):
                     skip_night()
                     nt = night(now)
@@ -3881,7 +4003,9 @@ def main(stdscr):
                 district(int(cam_x / CELL + BIG) - BIG,
                          int(cam_z / CELL + BIG) - BIG)["name"],
                 weather_word(now, wet),
-                rave_hint(v, now))
+                rave_hint(v, now)
+                or ("  ~ something over the city ~" if night(now)["alien"]
+                    else ""))
         else:
             ch, co = render_skyline(sky_x, width, height, now)
             hud = SKYLINE_HUD % (sky_x, weather_word(now, rain_intensity(now)))
