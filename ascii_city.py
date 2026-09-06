@@ -538,7 +538,7 @@ def blit(dst_ch, dst_co, b, sx, ground):
                 dst_co[y][x] = b["color"]
 
 
-def draw_stars(ch, co, cam_x, ground, wet, now):
+def draw_stars(ch, co, cam_x, ground, wet, now, tops):
     """The same night as the street sees, over the water.
 
     This is where a night actually gets to be a night: from a street you have a
@@ -555,9 +555,10 @@ def draw_stars(ch, co, cam_x, ground, wet, now):
     top = max(1, ground - 3)
     for sx in range(width):
         col = sx + off
+        ceiling = min(top, tops[sx])
         band_mid = (0.5 + n["tilt"] * math.sin(col * 0.012 - n["swing"])
                     if n["band"] else None)
-        for y in range(top):
+        for y in range(ceiling):
             m = _mix(col, y, 71)
             alt = 1.0 - y / float(top)
             rate = 85.0 * clear
@@ -581,7 +582,6 @@ def draw_stars(ch, co, cam_x, ground, wet, now):
 
     if n["alien"]:
         sky = SkyBox(width, top, off)
-        tops = [top] * width
         draw_sky_beams(ch, co, sky, tops, now, set())
         draw_mother(ch, co, sky, tops, now, set())
         draw_saucers(ch, co, sky, tops, now, set())
@@ -595,9 +595,10 @@ def draw_stars(ch, co, cam_x, ground, wet, now):
         my = int(round((1.0 - alt) * (top - 1)))
         dim = abs(n["phase"] - 0.5) * 2.0 > 0.34
         for k, c in enumerate(face):
-            if 0 <= mx + k < width and 0 <= my < top:
-                ch[my][mx + k] = c
-                co[my][mx + k] = MOON_DIM if dim else MOON
+            x = mx + k
+            if 0 <= x < width and 0 <= my < min(top, tops[x]):
+                ch[my][x] = c
+                co[my][x] = MOON_DIM if dim else MOON
 
 
 def draw_flash_sky(ch, co, water, flash):
@@ -708,8 +709,11 @@ def render_skyline(cam_x, width, height, now):
     ch = [[" "] * width for _ in range(height)]
     co = [[0] * width for _ in range(height)]
 
-    draw_stars(ch, co, cam_x, ground, wet, now)
-
+    # The city goes up first and the sky goes in around it. Drawn the other way
+    # round - stars, then buildings over them - every unlit window is a hole
+    # you can see a star through, because blit() leaves blanks alone. The
+    # silhouette is what a star has to clear, not the lit parts of it.
+    tops = [ground + 1] * width
     for li, spec in enumerate(LAYERS):
         off = cam_x * spec["parallax"]   # nearer layers slide past faster
         first = int(off // CHUNK_W) - 1
@@ -720,6 +724,12 @@ def render_skyline(cam_x, width, height, now):
                 if sx + b["w"] < 0 or sx >= width:
                     continue
                 blit(ch, co, b, sx, ground)
+                roof = ground - len(b["rows"]) + 1
+                for x in range(max(0, sx), min(width, sx + b["w"])):
+                    if roof < tops[x]:
+                        tops[x] = roof
+
+    draw_stars(ch, co, cam_x, ground, wet, now, tops)
 
     draw_flash_sky(ch, co, water, flash)
     if flash >= 0.05:
@@ -1735,6 +1745,11 @@ def draw_walls(ch, co, v, now):
     wall_d = [None] * width
     wall_top = [v.height] * width
     wall_base = [-1] * width
+    # The highest roof of anything in the column, near or far. wall_top is the
+    # nearest wall's and is what occlusion wants; this is what the sky wants,
+    # and they are not the same the moment a tall building stands behind a
+    # short one - which is most of a city.
+    sky_top = [v.height] * width
     seen = {}          # (cell, face) -> what the column to the left left off at
 
     for sx in range(width):
@@ -1770,6 +1785,7 @@ def draw_walls(ch, co, v, now):
                 cont or (None, None, None, None, ()),
                 face_kind(i + nx, j + nz), now))
             cover = r_lo if cover is None else min(cover, r_lo)
+            sky_top[sx] = cover
             if not n:
                 wall_d[sx] = dist
                 wall_top[sx] = r_lo
@@ -1777,7 +1793,7 @@ def draw_walls(ch, co, v, now):
             if cover <= 0:
                 break
 
-    return (wall_d, wall_top, wall_base)
+    return (wall_d, wall_top, wall_base, sky_top)
 
 
 # ---------------------------------------------------------------------------
@@ -1793,7 +1809,7 @@ def draw_flash(ch, co, v, walls, flash):
     they are lit for, which is the entire point of lightning."""
     if flash < 0.05:
         return
-    walls_d, walls_top, walls_base = walls
+    walls_d, walls_top, walls_base = walls[0], walls[1], walls[2]
     dens = int(flash * 66)
     for sx in range(v.width):
         if walls_d[sx] is None:
@@ -1941,8 +1957,10 @@ def draw_sky(ch, co, v, walls, wet, now):
     # Cloud takes the sky away gradually rather than all at once at a
     # threshold, so a night can be half lost behind it.
     clear = n["clarity"] * max(0.0, 1.0 - wet / 0.55)
-    tops = [v.height if walls[0][sx] is None else walls[1][sx]
-            for sx in range(v.width)]
+    # walls[3], not walls[1]: a star must clear every roof in its column, not
+    # only the nearest one. The part of a far tower that shows above a nearer
+    # roof is still a building, and stars were being drawn straight into it.
+    tops = walls[3]
     seen = set()
 
     for sx in range(v.width):

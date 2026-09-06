@@ -275,6 +275,14 @@ meteors. Same night whenever you come back to it, and nothing like the next one.
 
 Two things about it are worth keeping:
 
+- **A star has to clear every roof in its column, not the nearest one.** `draw_walls()` returns
+  `wall_top` for the *nearest* wall — which is what occlusion wants — and a fourth array `sky_top`
+  holding the highest roofline of anything in the column. They differ the moment a tall building
+  stands behind a short one, which is most of a city, and the sky wants the second: using `wall_top`
+  drew stars straight into the part of a far tower showing above a near roof.
+- **The waterfront draws the city first and the sky around it.** Stars-then-buildings looks
+  equivalent and is not: `blit()` leaves blanks alone, so every unlit window becomes a hole with a
+  star in it. The silhouette is what a star must clear, not the lit parts of it.
 - **Stars go on visible cells, not over the hemisphere.** The first pass scattered them by bearing
   with a random altitude, and from a street that put five in six behind a building: you got one or
   two stars and no sense of a sky at all. They are keyed on `(bearing, row)` instead, which still
