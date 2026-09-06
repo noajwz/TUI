@@ -784,9 +784,19 @@ def clearing_at(i, j):
     return hit
 
 
+_forced_rave = None     # when one was called up, rather than being due
+
+
+def force_rave(now):
+    global _forced_rave
+    _forced_rave = now
+
+
 def rave_window(now):
     """(start, length) of the rave that is on, or None. Same shape as a storm,
     on a longer slot and longer odds - about one hour in seven has one."""
+    if _forced_rave is not None and _forced_rave <= now < _forced_rave + RAVE_LONG:
+        return _forced_rave, RAVE_LONG
     k = int(now / RAVE_SLOT)
     for kk in (k, k - 1):
         m = _mix(kk, 0, 829)
@@ -1473,7 +1483,7 @@ def draw_tree_column(ch, co, v, sx, dist, b, u, r_lo, r_hi):
         zw = v.z + v.dz * dist
         xw = v.x + v.dx * dist
         near = (xw - rx) ** 2 + (zw - rz) ** 2
-        if near < 900.0:
+        if near < 2100.0:
             leaf = lamp
     for y in range(max(r_lo, crown), min(r_hi, under) + 1):
         if _mix(sx, y, 11) % 100 < 64:
@@ -2290,6 +2300,43 @@ STACK = [
 ]
 
 
+COMPASS = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+
+
+def rave_hint(v, now):
+    """What the HUD says when there is a rig going somewhere near.
+
+    Which way, not just that there is one: a wood is disorienting on purpose,
+    and "music somewhere" in a place with no landmarks is a fact you can do
+    nothing with. A bearing is one you can walk on."""
+    if rave_window(now) is None:
+        return ""
+    # Every direction, not only the way you happen to be facing:
+    # near_clearings() drops what is behind the camera because the renderer
+    # has no use for it, but a hint that goes quiet the moment you turn your
+    # back on the music is worse than no hint at all.
+    reach = 160.0
+    n = int(reach / CELL) + 1
+    ci = int(v.x / CELL + BIG) - BIG
+    cj = int(v.z / CELL + BIG) - BIG
+    best = None
+    for i in range(ci - n, ci + n + 1):
+        for j in range(cj - n, cj + n + 1):
+            if not clearing_at(i, j):
+                continue
+            cx, cz = (i + 0.5) * CELL, (j + 0.5) * CELL
+            d2 = (cx - v.x) ** 2 + (cz - v.z) ** 2
+            if d2 <= reach * reach and (best is None or d2 < best[0]):
+                best = (d2, cx, cz)
+    if best is None:
+        return ""
+    d = math.sqrt(best[0])
+    way = COMPASS[int(((math.atan2(best[1] - v.x, best[2] - v.z)
+                        / math.tau % 1.0) * 8 + 0.5)) % 8]
+    return "  ~ music %s, %s ~" % (way, "close" if d < 25.0
+                                  else "not far" if d < 70.0 else "a way off")
+
+
 def draw_woods_rave(ch, co, v, walls, i, j, now, wet):
     """A rig in a clearing, in the dark, with no permission.
 
@@ -2699,7 +2746,7 @@ def render_street(v, now):
         # the loop first threw the light of a rig sixty units away over one
         # you were standing next to.
         best = None
-        for ri, rj in near_clearings(v, 70.0):
+        for ri, rj in near_clearings(v, 110.0):
             m = _mix(ri, rj, 977)
             lamp = rave_light(now, (m & 255) / 255.0 * 6.0,
                               ((m >> 8) & 255) / 255.0)
@@ -3483,6 +3530,14 @@ def main(stdscr):
                             wheel = None
                             street = True
                             note = "-> " + name
+                            if kind == "clearing":
+                                # Taking you to where one sometimes happens is
+                                # no use: eighteen times in twenty there is
+                                # nothing on and you are looking at trees. The
+                                # menu exists to reach the thing, so it starts
+                                # one, the way L calls down a strike.
+                                force_rave(now)
+                                note = "-> the woods rave (starting)"
                         break
             elif key in (ord("q"), 27):
                 return
@@ -3584,8 +3639,7 @@ def main(stdscr):
                 district(int(cam_x / CELL + BIG) - BIG,
                          int(cam_z / CELL + BIG) - BIG)["name"],
                 weather_word(now, wet),
-                "  ~ music somewhere ~" if rave_window(now) is not None
-                and any(True for _ in near_clearings(v, 90.0)) else "")
+                rave_hint(v, now))
         else:
             ch, co = render_skyline(sky_x, width, height, now)
             hud = SKYLINE_HUD % (sky_x, weather_word(now, rain_intensity(now)))

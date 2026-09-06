@@ -292,8 +292,19 @@ any of it — where the stack and the crowd only resolve in the last few metres.
 set before `draw_walls()` because a tree clump *is* a wall.
 
 `RAVE_BPM` is 168 against the club's 134, and `rave_light()` gives no colour wash between the kicks
-the way `club_light()` does, only dark. It is not a club. The HUD says `~ music somewhere ~` when one
-is on within 90 units, or you could stand next to it in the dark and never know.
+the way `club_light()` does, only dark. It is not a club.
+
+**Rare and unreachable are different things, and the menu has to reach it.** `R` used to take you to
+a clearing and leave the rest to luck — with one on 9% of the time that is an empty wood eighteen
+tries in twenty, which is indistinguishable from a broken feature and was reported as one. It calls
+`force_rave()` now, the way `L` calls down a strike. Ten launches, ten raves.
+
+For finding one without the menu, the HUD gives a **bearing and a rough distance** — `~ music NE,
+not far ~`. Two things there are easy to get wrong: it must scan every direction, not
+`near_clearings()`, which drops what is behind the camera because the renderer has no use for it —
+a hint that goes quiet the moment you turn your back on the music is worse than none. And a bearing
+beats a bare "somewhere": a wood is disorienting on purpose, so a fact you cannot walk on is no
+help.
 
 ### Getting lost is the feature
 
