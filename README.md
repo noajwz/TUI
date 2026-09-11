@@ -8,7 +8,6 @@ script runs on its own with `python3`.
 
 | Script | What it does |
 | --- | --- |
-| `ascii_city.py` | Endless procedural city in the rain — neon streets, dark alleys, a roulette wheel |
 | `wiki_tui.py` | Full-screen Wikipedia browser — followable links, search, contents, history |
 | `termimage.py` | Shows images in the terminal, as real pixels or as coloured characters |
 | `claude_usage_tui.py` | Live view of how much of your Claude usage limits is spent |
@@ -21,5 +20,8 @@ script runs on its own with `python3`.
 | `tictactoe.py` | Tic-tac-toe, two players or against an unbeatable AI |
 
 `man ./termimage.1` documents the image viewer.
+
+`ascii_city.py` grew up and moved out — it now lives in
+[noajwz/ascii_city](https://github.com/noajwz/ascii_city).
 
 Written on macOS — a few of them lean on `system_profiler`, `pbcopy` and `sips`.
