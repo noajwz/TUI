@@ -1323,6 +1323,7 @@ class View:
         self.fy = self.fx * 0.5
         self.wide = set()       # cells holding a double-width glyph
         self.rave = None        # (colour, x, z) of a rig lighting the woods
+        self.water = set()      # cells the river was drawn into
         self.wet = 0.0          # how hard it is raining, 0..1
         self.flash = 0.0        # how bright the lightning is this instant
 
@@ -2174,6 +2175,292 @@ def _spill(glow, x, z, reach, attr):
                 glow[a * 65536 + b] = attr
 
 
+# Long and low, and drawn with enough characters to survive being close: a
+# barge passes within twenty units of the bank, and a fifteen-character hull
+# there gets three screen columns a character and comes out as porridge.
+BARGE = [
+    "              ,-----.         ",
+    "   ___________|o o o|________ ",
+    "  /                          \\",
+    "  '--------------------------'",
+]
+
+BARGE_SPEED = 3.2      # world units a second, which is slower than you walk
+BARGE_GAP = 620.0      # and how far apart they are along the channel
+
+
+def near_barges(v, now, reach):
+    """Every barge in sight, bow first.
+
+    A line of them spaced evenly along the river and all drifting at the same
+    pace, rather than one spawned and tracked: the position is a function of
+    the time and nothing is remembered, so a barge is where it should be
+    whether or not you were watching."""
+    drift = (now * BARGE_SPEED) % BARGE_GAP
+    base = math.floor((v.x - reach - drift) / BARGE_GAP)
+    for n in range(int(base), int(base) + int(2 * reach / BARGE_GAP) + 3):
+        x = n * BARGE_GAP + drift
+        if abs(x - v.x) > reach:
+            continue
+        i = int(x / CELL + BIG) - BIG
+        z = (river_centre(i) + 0.5) * CELL
+        rx, rz = x - v.x, z - v.z
+        if rx * v.dx + rz * v.dz < -20.0:
+            continue
+        yield x, z
+
+
+def draw_barge(ch, co, v, walls, x, z, now, wet):
+    """One going by. Hull lights, a lit wheelhouse, and a wake behind it."""
+    blit_sprite(ch, co, v, walls, BARGE, x, z, 0.0, 2.6, 26.0, CURB)
+    put_lit(ch, co, v, walls, x + 12.0, 1.3, z, "o", ROU_GREEN,
+             max(wet, 0.4), now)
+    put_lit(ch, co, v, walls, x - 12.0, 1.3, z, "o", ROU_RED,
+             max(wet, 0.4), now)
+    put_lit(ch, co, v, walls, x + 1.0, 3.4, z, "o", BULB, max(wet, 0.4), now)
+    # The wake, trailing off behind and fanning out.
+    for k in range(1, 9):
+        wobble = 0.5 * math.sin(now * 2.0 + k)
+        for side in (-1, 1):
+            put_point(ch, co, v, walls, x - 14.0 - k * 2.4, 0.12,
+                      z + side * (0.7 + k * 0.42) + wobble, "~", RAIN_FAR)
+
+
+ANGLER = [
+    " o    ",
+    "/|\\__ ",
+    " |   \\",
+    "/ \\   ",
+]
+
+
+def draw_river_mist(ch, co, v, walls, now, wet):
+    """Mist lying on the water on a cold clear night.
+
+    It sits on the surface and thickens away from you, so the far bank stands
+    out of it rather than the whole river being fogged: drawn upward from the
+    furthest water in each column, which is the one place mist reads as depth
+    instead of as dirt on the screen. Rain kills it - you do not get both."""
+    n = night(now)
+    amount = n["mist"] * n["clarity"] * max(0.0, 1.0 - wet * 4.0)
+    if amount < 0.12 or not v.water:
+        return
+    far = {}
+    for y, sx in v.water:
+        if sx not in far or y < far[sx]:
+            far[sx] = y
+    drift = int(now * 1.7)
+    for sx, top in far.items():
+        for k in range(int(1 + amount * 5)):
+            y = top - k
+            if y <= v.horizon or y >= v.height:
+                continue
+            if ch[y][sx] != " " and k:
+                continue
+            if _mix(sx + drift, y, 97) % 100 >= 74 - k * 13:
+                continue
+            ch[y][sx] = "-" if k else "~"
+            co[y][sx] = HAZE
+
+
+def near_dock_cranes(v, reach):
+    """Docks lots standing on the water, which is where a crane goes.
+
+    Every one of them, with no extra thinning: the docks are 7% of the city and
+    the river is a narrow band, so their overlap is already rare - one lot in
+    thirteen hundred. Thin that again and there are no cranes at all."""
+    n = int(reach / CELL) + 1
+    ci = int(v.x / CELL + BIG) - BIG
+    cj = int(v.z / CELL + BIG) - BIG
+    for i in range(ci - n, ci + n + 1):
+        for j in range(cj - n, cj + n + 1):
+            if is_open(i, j):
+                continue
+            if DISTRICTS[district_at(i, j)]["name"] != "docks":
+                continue
+            if not any(river_at(i + a, j + b)
+                       for a, b in ((-1, 0), (1, 0), (0, -1), (0, 1))):
+                continue
+            rx = (i + 0.5) * CELL - v.x
+            rz = (j + 0.5) * CELL - v.z
+            if rx * v.dx + rz * v.dz < -CELL or rx * rx + rz * rz > reach * reach:
+                continue
+            yield i, j
+
+
+def draw_dock_crane(ch, co, v, walls, i, j, now, wet):
+    """A gantry over the quay: two legs, a beam, and a hoist that creeps along
+    it. Slow enough that you only notice it has moved if you look twice."""
+    x0 = (i + 0.5) * CELL
+    z0 = (j + 0.5) * CELL
+    b = lot(i, j)
+    base = b["height"]
+    m = _mix(i, j, 281)
+    span = 4.0 + (m & 3)
+    for leg in (-span, span):
+        for h in range(11):
+            put_point(ch, co, v, walls, x0 + leg, base + h * 1.2, z0, "#",
+                      CONCRETE)
+    top = base + 12.0
+    for k in range(-int(span), int(span) + 1):
+        put_point(ch, co, v, walls, x0 + k, top, z0, "=", CONCRETE)
+    hoist = math.sin(now * 0.11 + (m >> 4 & 15)) * span
+    for h in range(4):
+        put_point(ch, co, v, walls, x0 + hoist, top - 1.0 - h * 1.1, z0, "|",
+                  CURB)
+    put_point(ch, co, v, walls, x0 + hoist, top - 5.2, z0, "H", CURB)
+    if int(now * 0.8) % 2:
+        put_lit(ch, co, v, walls, x0 + span, top + 0.9, z0, "*", EMBER_HOT,
+                max(wet, 0.3), now)
+
+
+def near_piers(v, reach):
+    """Each pier in front of you, as (i at its middle, last plank)."""
+    n = int(reach / CELL) + 1
+    ci = int(v.x / CELL + BIG) - BIG
+    seen = set()
+    for i in range(ci - n, ci + n + 1):
+        lo, hi = river_span(i)
+        end = None
+        for k in range(int(lo), int(lo) + PIER_LEN + 2):
+            if pier_at(i, k):
+                end = k
+        if end is None:
+            continue
+        run = i - (i % PIER_WIDE)
+        if run in seen:
+            continue
+        x = (run + PIER_WIDE * 0.5) * CELL
+        z = (end + 0.5) * CELL
+        rx, rz = x - v.x, z - v.z
+        if rx * v.dx + rz * v.dz < -CELL or rx * rx + rz * rz > reach * reach:
+            continue
+        seen.add(run)
+        yield run, end
+
+
+def draw_pier(ch, co, v, walls, run, end, now, wet):
+    """What is on a pier. Bollards down both sides, a lamp part way out,
+    somebody fishing off the end, and a gull on a post.
+
+    A pier with nothing on it reads as unfinished rather than quiet."""
+    lo, _ = river_span(run)
+    x0 = run * CELL
+    for k in range(int(lo) + 1, end + 1):
+        z = (k + 0.5) * CELL
+        for side in (0.35, PIER_WIDE - 0.35):
+            if _mix(run, k, 641) % 3:
+                continue
+            put_point(ch, co, v, walls, x0 + side * CELL, 0.45, z, "0", CURB)
+        if k == int(lo) + 3:
+            lx = x0 + PIER_WIDE * 0.5 * CELL
+            for h in (0.8, 1.8, 2.8):
+                put_point(ch, co, v, walls, lx, h, z, "|", CONCRETE)
+            put_lit(ch, co, v, walls, lx, 3.5, z, "o", BULB, max(wet, 0.3), now)
+
+    # The angler, at the very end, rod out over the water.
+    ax = x0 + PIER_WIDE * 0.35 * CELL
+    az = (end + 0.2) * CELL
+    blit_sprite(ch, co, v, walls, ANGLER, ax, az, 0.05, 1.7, 0.85, CURB)
+    put_point(ch, co, v, walls, ax + 2.6, 0.2, az - 1.4, ".", RAIN_FAR)
+
+    # And a gull on the last bollard, which shuffles about but does not leave.
+    gx = x0 + (PIER_WIDE - 0.35) * CELL
+    gz = (end + 0.5) * CELL
+    if int(now * 0.7) % 5:
+        put_point(ch, co, v, walls, gx, 0.85, gz, "v", MOON)
+
+
+def draw_gulls(ch, co, v, walls, now):
+    """A few over the water, going round. They are the one thing out here that
+    is neither on a clock nor standing still."""
+    for k in range(5):
+        m = _mix(k, 0, 863)
+        r = 14.0 + (m & 15)
+        a = now * (0.10 + (m >> 4 & 7) * 0.012) + (m >> 8 & 255) / 40.0
+        i = int(v.x / CELL + BIG) - BIG
+        cx = v.x + math.sin(a) * r
+        cz = (river_centre(i) + 0.5) * CELL + math.cos(a) * r * 0.6
+        y = 5.5 + (m >> 12 & 7) * 0.8 + math.sin(now * 0.8 + k) * 0.6
+        put_point(ch, co, v, walls, cx, y, cz,
+                  "v" if math.sin(now * 3.0 + k * 2.0) > 0 else "^", MOON_DIM)
+
+
+def near_buoys(v, reach):
+    """Channel markers, at fixed places along the river."""
+    n = int(reach / CELL) + 1
+    ci = int(v.x / CELL + BIG) - BIG
+    for i in range(ci - n, ci + n + 1):
+        if _mix(i // 4, 0, 331) % 9:
+            continue
+        lo, hi = river_span(i)
+        m = _mix(i // 4, 1, 337)
+        side = 0.28 if m & 1 else 0.72
+        x = (i + 0.5) * CELL
+        z = (lo + (hi - lo) * side) * CELL
+        rx, rz = x - v.x, z - v.z
+        if rx * v.dx + rz * v.dz < -CELL or rx * rx + rz * rz > reach * reach:
+            continue
+        yield x, z, m
+
+
+def draw_buoy(ch, co, v, walls, x, z, m, now, wet):
+    """A buoy, blinking on its own count.
+
+    Deliberately not on any of the city's clocks and not on its neighbour's
+    either: a row of lights in step reads as decoration, and the whole point of
+    a channel marker is that it is not part of the town."""
+    period = 2.2 + (m & 7) * 0.45
+    lit = ((now + (m >> 4) % 100 / 13.0) % period) < 0.5
+    bob = 0.12 * math.sin(now * 1.3 + (m >> 8 & 15))
+    put_point(ch, co, v, walls, x, 0.35 + bob, z, "A", CURB)
+    if lit:
+        put_lit(ch, co, v, walls, x, 1.15 + bob, z, "o",
+                ROU_GREEN if m & 1 else ROU_RED, max(wet, 0.45), now)
+    else:
+        put_point(ch, co, v, walls, x, 1.15 + bob, z, ".", CONCRETE)
+
+
+def reflect_river(ch, co, v, walls, now, wet):
+    """The far bank lying across the water.
+
+    A planar mirror in one line: a facade point drawn at row r reflects to
+    2*horizon - r, pushed down by twice the waterline offset for that
+    building's distance. Falls straight out of the projection - the height that
+    put a point at r puts its mirror image the same distance the other side of
+    the horizon, and the eye being above the water rather than on it is the
+    whole of the correction.
+
+    Only into cells the river was actually drawn into, so the reflection stops
+    at the bank instead of running up the road. Broken up sideways and thinned
+    with depth, the way the waterfront does it: an unbroken copy of the city
+    reads as the picture having been printed twice."""
+    if not v.water:
+        return
+    chop = int(now * 2.0)
+    for sx in range(v.width):
+        dist = walls[0][sx]
+        if dist is None:
+            continue
+        drop = 2.0 * EYE_Y * v.fy / dist
+        for r in range(max(0, walls[3][sx]), v.horizon):
+            glyph = ch[r][sx]
+            if glyph == " ":
+                continue
+            r2 = int(round(2 * v.horizon - r + drop))
+            deep = r2 - v.horizon
+            if deep < 1 or r2 >= v.height:
+                continue
+            if _mix(sx, r2, 61 + chop) % 100 >= 88 - deep * 5 - int(34 * wet):
+                continue
+            tx = sx + int(round(1.7 * math.sin(now * 1.1 + deep * 0.55)
+                                + 1.3 * wet * math.sin(now * 3.7 + deep)))
+            if (r2, tx) not in v.water:
+                continue
+            ch[r2][tx] = glyph
+            co[r2][tx] = co[r][sx] & ~curses.A_BOLD
+
+
 def draw_ground(ch, co, v, walls, glow, wet, now):
     """Road, pavement and kerb.
 
@@ -2266,6 +2553,7 @@ def draw_ground(ch, co, v, walls, glow, wet, now):
                 # city is putting out: the glow map is already worked out for
                 # the wet road, and a river is wetter than any road.
                 h = _mix(int(x * 2.0) - int(now * 1.6), int(z * 2.0), 29)
+                v.water.add((y, sx))
                 if g is not None and h % 3 == 0:
                     glyph, attr = ":", g
                 elif h % 4 == 0:
@@ -3208,6 +3496,7 @@ def night(now):
             "warmth": 0.15 + ((m >> 11) & 15) / 15.0 * 0.4,
             "meteors": (m >> 29) & 7,
             "alien": (m >> 24) % ALIEN_ODDS == 0,
+            "mist": ((m >> 27) & 7) / 7.0,         # how much comes off the water
             "mother": ((m >> 13) & 255) / 255.0,   # when the big one crosses
             "lands": ((m >> 2) & 255) / 255.0,     # and when one beam stops
         }
@@ -3515,10 +3804,22 @@ def render_street(v, now):
     draw_ground(ch, co, v, walls, collect_glow(v, now, wet), wet, now)
     draw_flash(ch, co, v, walls, v.flash)
     draw_props(ch, co, v, walls, now, wet)
+    for ci_, cj_ in near_dock_cranes(v, 95.0):
+        draw_dock_crane(ch, co, v, walls, ci_, cj_, now, wet)
+    for prun, pend in near_piers(v, 95.0):
+        draw_pier(ch, co, v, walls, prun, pend, now, wet)
+    if v.water:
+        draw_gulls(ch, co, v, walls, now)
+    for bx, bz, bm in near_buoys(v, 90.0):
+        draw_buoy(ch, co, v, walls, bx, bz, bm, now, wet)
+    for bx, bz in near_barges(v, now, 110.0):
+        draw_barge(ch, co, v, walls, bx, bz, now, wet)
+    reflect_river(ch, co, v, walls, now, wet)
     for i, j in near_yokocho(v, 55.0):
         draw_lantern_string(ch, co, v, walls, i, j, now)
     for i, j in near_worksites(v, 85.0):
         draw_worksite(ch, co, v, walls, i, j, now, wet)
+    draw_river_mist(ch, co, v, walls, now, wet)
     if rave_window(now) is not None:
         for i, j in near_clearings(v, 70.0):
             draw_woods_rave(ch, co, v, walls, i, j, now, wet)

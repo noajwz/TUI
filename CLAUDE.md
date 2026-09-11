@@ -378,6 +378,38 @@ river, at a known place, so walking outward looking for it fails from anywhere m
 hundred cells away in j — which is most of an infinite city. `_water_spot()` goes straight to the
 channel at your x and works along it.
 
+### What is on the river
+
+`reflect_river()` is a **planar mirror in one line**: a facade point drawn at row `r` reflects to
+`2*horizon - r`, pushed down by twice the waterline offset for that building's distance. It falls
+straight out of the projection — the height that put a point at `r` puts its mirror the same
+distance the other side of the horizon, and the eye being *above* the water rather than on it is
+the whole of the correction. It draws only into cells the river was actually drawn into (`v.water`),
+so the reflection stops at the bank instead of running up the road, and it is broken sideways and
+thinned with depth: an unbroken copy of the city reads as the picture having been printed twice.
+
+**The barge** is a line of them spaced evenly along the channel, all drifting at the same pace —
+position is a function of time and nothing is remembered, so one is where it should be whether or
+not you were watching. One goes by about every three minutes. Its hull is drawn with thirty
+characters rather than fifteen because it passes within twenty units of the bank, and a
+fifteen-character hull there gets three screen columns a character and comes out as porridge.
+
+**Buoys** blink on their own count and on a different one from their neighbour — a row of lights in
+step reads as decoration, and the whole point of a channel marker is that it is not part of the
+town. **Piers** get bollards, a lamp, a gull that shuffles but does not leave, and somebody fishing
+off the end; a pier with nothing on it reads as unfinished rather than quiet. **Gulls** go round
+over the water, the one thing out here on no clock at all.
+
+**Mist** comes off the water on a clear dry night — `night()["mist"]` against clarity, killed
+outright by rain, so you never get both. It is drawn *upward from the furthest water in each
+column*, which is the one place it reads as depth rather than as dirt on the screen: the far bank
+stands out of it instead of the whole river fogging.
+
+**Cranes** stand on docks lots that touch the water, with no extra thinning — the docks are 7% of
+the city and the river a narrow band, so their overlap is already about one lot in thirteen hundred.
+Thinning that again (the first attempt used one in five) leaves no cranes at all, which is how it
+was caught.
+
 ### Planned: bridges with lights
 
 The crossings are **building sites**, deliberately: hoardings with amber lamps blinking out of step,
