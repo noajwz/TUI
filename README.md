@@ -9,6 +9,7 @@ script runs on its own with `python3`.
 | Script | What it does |
 | --- | --- |
 | `wiki_tui.py` | Full-screen Wikipedia browser — followable links, search, contents, history |
+| `psychonaut_tui.py` | The same browser for PsychonautWiki, with the dosage and duration tables rendered |
 | `termimage.py` | Shows images in the terminal, as real pixels or as coloured characters |
 | `claude_usage_tui.py` | Live view of how much of your Claude usage limits is spent |
 | `rooster_tui.py` | Work roster from an `.ics` subscription feed, re-fetched while you watch |
