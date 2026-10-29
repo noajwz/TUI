@@ -13,6 +13,7 @@ script runs on its own with `python3`.
 | `termimage.py` | Shows images in the terminal, as real pixels or as coloured characters |
 | `claude_usage_tui.py` | Live view of how much of your Claude usage limits is spent |
 | `rooster_tui.py` | Work roster from an `.ics` subscription feed, re-fetched while you watch |
+| `reminders_tui.py` | Apple Reminders in the terminal: tick off, add, reschedule, edit notes |
 | `wiki_reader.py` | One-shot Wikipedia reader that pipes into `less` |
 | `btc_tx_check.py` | Looks up a Bitcoin transaction by its hash |
 | `bt_battery_tui.py` | Battery levels of connected Bluetooth devices |
@@ -25,4 +26,5 @@ script runs on its own with `python3`.
 `ascii_city.py` grew up and moved out — it now lives in
 [noajwz/ascii_city](https://github.com/noajwz/ascii_city).
 
-Written on macOS — a few of them lean on `system_profiler`, `pbcopy` and `sips`.
+Written on macOS — a few of them lean on `system_profiler`, `pbcopy` and `sips`, and
+`reminders_tui.py` compiles a small Swift helper with `swiftc` on first run (Command Line Tools).
