@@ -19,6 +19,7 @@ script runs on its own with `python3`.
 | `bt_battery_tui.py` | Battery levels of connected Bluetooth devices |
 | `usb_speed_tui.py` | Read and write speed of USB drives, sequential and 4K random, with a live graph |
 | `pwgen_tui.py` | Password generator with a curses interface |
+| `typing_tui.py` | Typing speed test — timed or word-count runs, WPM, accuracy, a per-second chart and personal bests |
 | `wordle_tui.py` | Wordle — six tries at a five-letter word, with hard mode and a shareable grid |
 | `minesweeper_tui.py` | Minesweeper — three levels or a custom board, safe first dig, chording, mouse support |
 | `pokemon_types_tui.py` | Pokémon type calculator — weaknesses of any type pair, move coverage, and the full chart |

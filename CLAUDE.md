@@ -12,6 +12,7 @@ Run any of them directly:
 python3 bt_battery_tui.py    # curses; Bluetooth battery levels, polls every 5s
 python3 usb_speed_tui.py [--all] [--size MIB] [--list] [--once /Volumes/X [--seq-only]]   # curses; USB drive speed
 python3 pwgen_tui.py         # curses; password generator, copies via pbcopy
+python3 typing_tui.py [--time SECONDS | --words N] [--seed N]   # curses; typing test, WPM
 python3 tictactoe.py         # plain stdin/stdout; 2-player or minimax AI
 python3 wordle_tui.py [--daily] [--hard] [--seed N] [--word W]   # curses; Wordle
 python3 minesweeper_tui.py [--level expert] [--rows R --cols C --mines M] [--seed N]
@@ -33,7 +34,7 @@ installed on this machine and there is no pyproject/ruff.toml** — it runs with
 
 Three shapes exist and each new script should follow one of them:
 
-- **curses TUIs** (`bt_battery_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
+- **curses TUIs** (`bt_battery_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`, `typing_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
   a `stdscr.timeout(...)` + `stdscr.getch()` event loop, module-level constants for tunables
   (`REFRESH_SECONDS`, `MIN_LEN`/`MAX_LEN`, option tables).
 - **CLI scripts** (`btc_tx_check`, `wiki_reader`): `argparse` in `main()`, raw ANSI escape constants
@@ -271,6 +272,33 @@ the curses half without touching real reminders, import the module, replace `rt.
 fake backed by a saved `dump` (run the helper with `dump` once and keep its stdout), and call
 `curses.wrapper(rt.run_curses, "fake", data)` in a tmux pane: `tmux capture-pane -p` gives the
 screen as text. Please don't test writes against the real store; they sync to the phone.
+
+## typing_tui.py
+
+A typing speed test in the standard curses shape: time mode (15/30/60/120 s) or words mode
+(10/25/50/100 words), picked with the arrow keys before the first keystroke, which is also what
+starts the clock. `Test` holds every rule and all the maths and imports nothing from curses; every
+method takes `now` explicitly, so a run can be replayed at exact timestamps from a test.
+
+- **Three numbers, kept distinct.** WPM counts only words typed exactly right plus the space after
+  each, at five characters to the word; raw counts every character as the text stands; accuracy is
+  per *keystroke* (`keys`/`wrong_keys`), so a typo fixed with backspace costs accuracy but not
+  WPM. Folding any two of these together is the easy mistake.
+- **Time mode ends in `tick()`**, at exactly `started + amount`, and `tick()` runs before every key
+  and every repaint, so a key that arrives after the deadline is dropped rather than counted.
+- Backspace from the start of a word steps back into the previous word only if that word has a
+  mistake in it; a correct word is locked in.
+- **A pasted run takes no time at all**, which made WPM run into six figures. Runs are timed as at
+  least a second, and anything over `MAX_HUMAN_WPM` is shown but never saved as a best.
+- Personal bests live per `"time 30"`-style key in `~/.local/state/typing_tui/best.json`,
+  written best-effort; they are loaded once at startup.
+- ESC quits only outside a running test. ESC followed by DEL is how macOS sends option-backspace,
+  and deletes the word.
+
+Testing the curses half: a tmux pane plus `capture-pane -p`, at 50×10 (the minimum) and 80×24.
+Run it with `HOME` pointed at a temp directory so test runs don't write to the real bests, and
+send keys in chunks with sleeps between: one `send-keys` of the whole text arrives in a single
+instant and trips the paste guard.
 
 ## minesweeper_tui.py
 
