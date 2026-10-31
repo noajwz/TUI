@@ -15,6 +15,7 @@ python3 pwgen_tui.py         # curses; password generator, copies via pbcopy
 python3 tictactoe.py         # plain stdin/stdout; 2-player or minimax AI
 python3 wordle_tui.py [--daily] [--hard] [--seed N] [--word W]   # curses; Wordle
 python3 minesweeper_tui.py [--level expert] [--rows R --cols C --mines M] [--seed N]
+python3 pokemon_types_tui.py [TYPE [TYPE]]    # curses; type matchups, e.g. `fire flying` or `psy`
 python3 claude_usage_tui.py [--once]   # Claude usage limits, read from ~/.claude.json
 python3 rooster_tui.py [--once]        # curses; work roster from an .ics feed, refetched every 15m
 python3 reminders_tui.py [--once] [--rebuild]   # curses; Apple Reminders, read and write
@@ -32,7 +33,7 @@ installed on this machine and there is no pyproject/ruff.toml** — it runs with
 
 Three shapes exist and each new script should follow one of them:
 
-- **curses TUIs** (`bt_battery_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `wordle_tui`, `minesweeper_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
+- **curses TUIs** (`bt_battery_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
   a `stdscr.timeout(...)` + `stdscr.getch()` event loop, module-level constants for tunables
   (`REFRESH_SECONDS`, `MIN_LEN`/`MAX_LEN`, option tables).
 - **CLI scripts** (`btc_tx_check`, `wiki_reader`): `argparse` in `main()`, raw ANSI escape constants
@@ -286,3 +287,13 @@ bare ESC followed by junk, and quitting on it ends the game out from under the p
 Testing the curses half: a tmux pane plus `capture-pane -p`. Under `TERM=tmux-256color` ncurses
 expects **X10** mouse reports, not SGR — a left press on 1-based column X, row Y is
 `send-keys -H 1b 5b 4d 20 <32+X> <32+Y>` (`22` for the right button, `23` for the release).
+
+## pokemon_types_tui.py
+
+`CHART` is the Generation 6+ chart (the one with Fairy), stored sparsely: attacker → only the
+non-1× defenders. It should hold exactly 51 super-effective, 61 not-very-effective and 8 no-effect
+entries; counting those is the quickest check after editing it. `multiplier()`, `defend_groups()`,
+`attack_groups()` and `parse_type()` are pure. Attack mode with several types picked scores each
+defender by the **best** of them (move coverage), not the product — multiplying only makes sense
+for a defender's two types. Testing the curses half: a tmux pane plus `capture-pane -p`, at 80×24,
+the smallest size it draws at.

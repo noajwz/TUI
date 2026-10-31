@@ -21,6 +21,7 @@ script runs on its own with `python3`.
 | `pwgen_tui.py` | Password generator with a curses interface |
 | `wordle_tui.py` | Wordle — six tries at a five-letter word, with hard mode and a shareable grid |
 | `minesweeper_tui.py` | Minesweeper — three levels or a custom board, safe first dig, chording, mouse support |
+| `pokemon_types_tui.py` | Pokémon type calculator — weaknesses of any type pair, move coverage, and the full chart |
 | `tictactoe.py` | Tic-tac-toe, two players or against an unbeatable AI |
 
 `man ./termimage.1` documents the image viewer.
