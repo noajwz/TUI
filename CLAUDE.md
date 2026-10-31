@@ -13,6 +13,7 @@ python3 bt_battery_tui.py    # curses; Bluetooth battery levels, polls every 5s
 python3 pwgen_tui.py         # curses; password generator, copies via pbcopy
 python3 tictactoe.py         # plain stdin/stdout; 2-player or minimax AI
 python3 wordle_tui.py [--daily] [--hard] [--seed N] [--word W]   # curses; Wordle
+python3 minesweeper_tui.py [--level expert] [--rows R --cols C --mines M] [--seed N]
 python3 claude_usage_tui.py [--once]   # Claude usage limits, read from ~/.claude.json
 python3 rooster_tui.py [--once]        # curses; work roster from an .ics feed, refetched every 15m
 python3 reminders_tui.py [--once] [--rebuild]   # curses; Apple Reminders, read and write
@@ -30,7 +31,7 @@ installed on this machine and there is no pyproject/ruff.toml** — it runs with
 
 Three shapes exist and each new script should follow one of them:
 
-- **curses TUIs** (`bt_battery_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `wordle_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
+- **curses TUIs** (`bt_battery_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `wordle_tui`, `minesweeper_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
   a `stdscr.timeout(...)` + `stdscr.getch()` event loop, module-level constants for tunables
   (`REFRESH_SECONDS`, `MIN_LEN`/`MAX_LEN`, option tables).
 - **CLI scripts** (`btc_tx_check`, `wiki_reader`): `argparse` in `main()`, raw ANSI escape constants
@@ -242,3 +243,19 @@ the curses half without touching real reminders, import the module, replace `rt.
 fake backed by a saved `dump` (run the helper with `dump` once and keep its stdout), and call
 `curses.wrapper(rt.run_curses, "fake", data)` in a tmux pane: `tmux capture-pane -p` gives the
 screen as text. Please don't test writes against the real store; they sync to the phone.
+
+## minesweeper_tui.py
+
+`Board` holds every rule and imports nothing from curses, so a game can be played from a test:
+`Board(rows, cols, mines, random.Random(seed))`, then `dig()` / `toggle_flag()` and assert on
+`state`, `revealed`, `mines`. Mines are laid on the **first dig**, never before, keeping that cell
+and its ring clear (just the cell, if the board is too dense for a ring), so the opening always
+flood-fills. `dig()` on a revealed number chords: it opens the neighbours once the flags around it
+match the count, and a wrong flag there loses the game, as it should.
+
+ESC is deliberately not a quit key. A mouse or key sequence ncurses doesn't recognise arrives as a
+bare ESC followed by junk, and quitting on it ends the game out from under the player.
+
+Testing the curses half: a tmux pane plus `capture-pane -p`. Under `TERM=tmux-256color` ncurses
+expects **X10** mouse reports, not SGR — a left press on 1-based column X, row Y is
+`send-keys -H 1b 5b 4d 20 <32+X> <32+Y>` (`22` for the right button, `23` for the release).
