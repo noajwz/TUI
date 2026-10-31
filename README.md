@@ -17,6 +17,7 @@ script runs on its own with `python3`.
 | `wiki_reader.py` | One-shot Wikipedia reader that pipes into `less` |
 | `btc_tx_check.py` | Looks up a Bitcoin transaction by its hash |
 | `bt_battery_tui.py` | Battery levels of connected Bluetooth devices |
+| `usb_speed_tui.py` | Read and write speed of USB drives, sequential and 4K random, with a live graph |
 | `pwgen_tui.py` | Password generator with a curses interface |
 | `wordle_tui.py` | Wordle — six tries at a five-letter word, with hard mode and a shareable grid |
 | `minesweeper_tui.py` | Minesweeper — three levels or a custom board, safe first dig, chording, mouse support |
