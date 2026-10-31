@@ -501,6 +501,7 @@ HELP_TEXT = [
     ("  Backspace / [ / ←", "back"),
     ("  r", "refresh"),
     ("  o", "open in the browser      y  copy the URL"),
+    ("  w", f"full window width / capped at {MAX_WIDTH} columns"),
     ("  ?", "this help                q  quit"),
     ("Boards and catalog", ""),
     ("  /", "filter (Enter on an empty filter clears it)"),
@@ -527,6 +528,7 @@ class App:
         self.message = ""
         self.boards = []
         self.reveal = False
+        self.full_width = False
         self._init_colors()
 
     # -- colours --
@@ -585,7 +587,8 @@ class App:
 
     def text_width(self):
         cols = self.stdscr.getmaxyx()[1]
-        return max(20, min(MAX_WIDTH, cols - 2 * LEFT_MARGIN))
+        cap = cols if self.full_width else MAX_WIDTH
+        return max(20, min(cap, cols - 2 * LEFT_MARGIN))
 
     # -- network with on-screen feedback --
 
@@ -793,6 +796,12 @@ class App:
                     each.relayout()
             elif key == ord("?"):
                 self.show_help()
+            elif key == ord("w"):
+                self.full_width = not self.full_width
+                for each in self.screens:
+                    each.relayout()
+                self.message = ("Full width." if self.full_width
+                                else f"Width capped at {MAX_WIDTH} columns.")
             elif key in BACK_KEYS:
                 if not screen.back():
                     if len(self.screens) > 1:

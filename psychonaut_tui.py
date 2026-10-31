@@ -375,6 +375,30 @@ class Doc:
         self.anchors = anchors      # heading id -> line
 
 
+def text_size(text, kind):
+    """Characters in a line that don't depend on the wrap width: not spaces, not rules
+    (drawn to the width) and not the quote bar that every wrapped quote line repeats."""
+    if kind == "rule":
+        return 0
+    return len("".join(text.split()).replace("│", ""))
+
+
+def text_offset(doc, line):
+    """Width-independent characters above a line, so a reading position survives re-wrapping."""
+    return sum(text_size(text, kind) for text, kind, _ in doc.lines[:line])
+
+
+def line_at_offset(doc, offset):
+    """The line holding the character text_offset() counted up to."""
+    seen = 0
+    for index, (text, kind, _) in enumerate(doc.lines):
+        size = text_size(text, kind)
+        if seen + size > offset:
+            return index
+        seen += size
+    return max(0, len(doc.lines) - 1)
+
+
 def wrap_block(text, links, width, first_prefix, cont_prefix):
     """Word-wrap, returning [(line_text, [(col0, col1, link_local_index)])]."""
     words = [(m.start(), m.group()) for m in re.finditer(r"\S+", text)]
@@ -554,6 +578,7 @@ HELP_TEXT = [
     ("Other", ""),
     ("  o", "open this article in the browser"),
     ("  y", "copy the article URL"),
+    ("  w", f"full window width / capped at {MAX_WIDTH} columns"),
     ("  ? ", "this help          q  quit"),
 ]
 
@@ -576,6 +601,7 @@ class Browser:
         self.match_at = -1
         self.query = ""
         self.width = 80
+        self.full_width = False
         self._init_colors()
 
     # -- colours --
@@ -620,7 +646,8 @@ class Browser:
 
     def text_width(self):
         cols = self.stdscr.getmaxyx()[1]
-        return max(20, min(MAX_WIDTH, cols - 2 * LEFT_MARGIN))
+        cap = cols if self.full_width else MAX_WIDTH
+        return max(20, min(cap, cols - 2 * LEFT_MARGIN))
 
     # -- network with on-screen feedback --
 
@@ -699,6 +726,19 @@ class Browser:
     def relayout(self):
         self.width = self.text_width()
         self.doc = layout(self.blocks, self.width)
+
+    def toggle_width(self):
+        offset = text_offset(self.doc, self.top)
+        self.full_width = not self.full_width
+        self.relayout()
+        top = min(line_at_offset(self.doc, offset), self.max_top())
+        if self.matches:
+            match_at = self.match_at
+            self.find(self.query)  # the hits moved; find() also scrolls, undone below
+            self.match_at = min(match_at, len(self.matches) - 1)
+        self.top = top
+        self.message = ("Full width." if self.full_width
+                        else f"Width capped at {MAX_WIDTH} columns.")
 
     def remember(self):
         if 0 <= self.hindex < len(self.history):
@@ -1078,6 +1118,8 @@ class Browser:
                  if self.is_article else self.no_article())
             elif key == ord("y"):
                 self.copy_url() if self.is_article else self.no_article()
+            elif key == ord("w"):
+                self.toggle_width()
             elif key == ord("?"):
                 self.show_help()
             else:

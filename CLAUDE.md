@@ -80,6 +80,14 @@ navigation and re-wrapping never re-fetch. `Browser` holds all UI state; every n
 `Browser.call()`, which paints a "Loading…" bar and converts exceptions into a message string (HTTP 429
 from the API is common when hammering it, and is reported in plain words).
 
+Text is capped at `MAX_WIDTH` columns for readability; `w` toggles between that and the full window
+(`full_width`, honoured by `text_width()`). `toggle_width()` keeps the reader on the same text
+because `Doc` has no line → block map: `text_offset()` counts the characters above the top line that
+don't depend on the width, and `line_at_offset()` finds that character again after re-wrapping.
+`text_size()` must exclude anything `layout()` draws per line or to the width — spaces, `rule`
+lines and the `│` bar on quotes — or the position drifts; check by laying a long article out at
+two widths and asserting the totals match. `psychonaut_tui` has the same three functions.
+
 Failures must stay on screen and recoverable: `show_notice()` renders an error or the welcome text as if
 it were a page, so a missing article or a dead network leaves a readable screen rather than exiting.
 
@@ -106,7 +114,8 @@ clears its filter, before the screen itself is popped.
   board), `board` (`>>>/g/`, including `catalog#s=` searches, which open the catalog filtered) or `url`.
 - **Layout is display-column aware** (`cwidth()`): threads are full of CJK and emoji, and wrapping
   by `len()` overflows the window. `layout_thread()` → `Doc` records each link's row and each post's
-  first row; re-layout on resize or refresh keeps the reader on the same post via `anchor()`.
+  first row; re-layout on resize, refresh or the `w` width toggle (`App.full_width`, capped
+  otherwise at `MAX_WIDTH`) keeps the reader on the same post via `anchor()`.
 - Spoilers are hidden at *draw* time by swapping each character for `░` of the same width, so `s`
   needs no re-layout. "Replies:" back-links are computed from the parsed quotes (`backlinks()`).
 - `v` shows a post's image in the terminal by running `termimage.py` as a **subprocess** if it is
