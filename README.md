@@ -16,6 +16,7 @@ script runs on its own with `python3`.
 | `rooster_tui.py` | Work roster from an `.ics` subscription feed, re-fetched while you watch |
 | `reminders_tui.py` | Apple Reminders in the terminal: tick off, add, reschedule, edit notes |
 | `wiki_reader.py` | One-shot Wikipedia reader that pipes into `less` |
+| `crypto_tui.py` | Live BTC, ETH and XMR prices with braille price charts, volume, and a crosshair to read past prices |
 | `btc_tx_check.py` | Looks up a Bitcoin transaction by its hash |
 | `bt_battery_tui.py` | Battery levels of connected Bluetooth devices |
 | `usb_speed_tui.py` | Read and write speed of USB drives, sequential and 4K random, with a live graph |

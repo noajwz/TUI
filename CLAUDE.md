@@ -20,6 +20,7 @@ python3 pokemon_types_tui.py [TYPE [TYPE]]    # curses; type matchups, e.g. `fir
 python3 claude_usage_tui.py [--once]   # Claude usage limits, read from ~/.claude.json
 python3 rooster_tui.py [--once]        # curses; work roster from an .ics feed, refetched every 15m
 python3 reminders_tui.py [--once] [--rebuild]   # curses; Apple Reminders, read and write
+python3 crypto_tui.py [--currency eur|usd|…] [--coin XMR] [--range 1D|7D|30D|90D|1Y] [--once]   # CoinGecko API
 python3 btc_tx_check.py <64-hex-txid> [--testnet]     # Blockstream API
 python3 wiki_reader.py <topic> [--lang nl]            # Wikipedia API, pipes to `less -R`
 python3 wiki_tui.py [topic] [--lang nl]               # full-screen Wikipedia browser
@@ -35,7 +36,7 @@ installed on this machine and there is no pyproject/ruff.toml** — it runs with
 
 Three shapes exist and each new script should follow one of them:
 
-- **curses TUIs** (`bt_battery_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`, `typing_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
+- **curses TUIs** (`bt_battery_tui`, `crypto_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`, `typing_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
   a `stdscr.timeout(...)` + `stdscr.getch()` event loop, module-level constants for tunables
   (`REFRESH_SECONDS`, `MIN_LEN`/`MAX_LEN`, option tables).
 - **CLI scripts** (`btc_tx_check`, `wiki_reader`): `argparse` in `main()`, raw ANSI escape constants
@@ -357,6 +358,28 @@ bare ESC followed by junk, and quitting on it ends the game out from under the p
 Testing the curses half: a tmux pane plus `capture-pane -p`. Under `TERM=tmux-256color` ncurses
 expects **X10** mouse reports, not SGR — a left press on 1-based column X, row Y is
 `send-keys -H 1b 5b 4d 20 <32+X> <32+Y>` (`22` for the right button, `23` for the release).
+
+## crypto_tui.py
+
+BTC, ETH and XMR only (`COINS`), from CoinGecko's keyless public API. One `/coins/markets` call
+covers the whole table for all three coins — prices, 1h/24h/7d/30d/1y changes, ATH, supply and an
+hourly 7-day sparkline — and is refetched every `REFRESH_SECONDS`. The big chart is
+`/coins/{id}/market_chart`, cached per `(coin, currency, days)` for the TTL in `RANGES`.
+
+- **The rate limit is the constraint that shapes it.** The free tier gives 429s after a handful of
+  calls in quick succession. A failed chart fetch is not retried for `RETRY_SECONDS` (retrying
+  every tick of the 1 s event loop is what keeps a 429 going), and 7D falls back to the
+  markets sparkline (`sparkline_chart()`), so the default view costs no call of its own. Test
+  sparingly against the live API, or monkeypatch `fetch_markets`/`fetch_chart`.
+- **`total_volumes` is a rolling 24h figure**, not volume per interval, so the bars are averaged
+  per column (`bucket_means()`, never summed) and scaled from just under the window's minimum —
+  from zero they would be a flat block. The strip is labelled `24h vol` for that reason.
+- The chart is braille, two data points per cell column and four per row (`braille_chart()`); a
+  jump is split between two columns so the line stays joined. `resample()`, `braille_chart()`,
+  `bar_rows()` and the `fmt_*` helpers are pure.
+
+Testing the curses half: a tmux pane plus `capture-pane -p`, at 60×20 (the minimum, where the 1h
+column is dropped) and 80×24.
 
 ## pokemon_types_tui.py
 
