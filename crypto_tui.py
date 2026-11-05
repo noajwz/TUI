@@ -15,7 +15,7 @@ API = "https://api.coingecko.com/api/v3"
 USER_AGENT = "crypto-tui/1.0 (terminal price checker)"
 
 COINS = [("bitcoin", "BTC", "Bitcoin"), ("ethereum", "ETH", "Ethereum"), ("monero", "XMR", "Monero")]
-CURRENCIES = ["eur", "usd"]                    # `c` cycles these; --currency accepts any vs_currency
+CURRENCIES = ["usd", "eur"]                    # `c` cycles these; --currency accepts any vs_currency
 SYMBOLS = {"eur": "€", "usd": "$", "gbp": "£", "jpy": "¥", "btc": "₿"}
 
 # (key, label, days, x-axis label format, seconds a fetched chart is kept)
@@ -400,7 +400,8 @@ class App:
             put_runs(stdscr, h - 1, 0, [(f" {self.message} ", curses.color_pair(4) | curses.A_REVERSE),
                                         ("  r retry  q quit", curses.color_pair(5))], w)
         else:
-            keys = ["↑↓ coin", "1-5 range", "←→ inspect", "space hide", "c currency", "r refresh", "q quit"]
+            other = self.currencies[(self.currencies.index(cur) + 1) % len(self.currencies)]
+            keys = ["↑↓ coin", "1-5 range", "←→ inspect", "space hide", f"c {other.upper()}", "r refresh", "q quit"]
             put_runs(stdscr, h - 1, 0, [(f" {k} ", curses.color_pair(5)) for k in keys], w)
 
     def draw_chart(self, stdscr, chart, row, chart_h, plot_w, show_volume, w):
@@ -615,8 +616,8 @@ def print_once(currency):
 
 def main():
     parser = argparse.ArgumentParser(description="Live BTC, ETH and XMR prices and charts.")
-    parser.add_argument("--currency", default="eur", type=str.lower,
-                        help="quote currency, e.g. eur, usd, gbp (default eur)")
+    parser.add_argument("--currency", default=CURRENCIES[0], type=str.lower,
+                        help=f"quote currency, e.g. usd, eur, gbp (default {CURRENCIES[0]})")
     parser.add_argument("--coin", default="BTC", choices=[c[1] for c in COINS], type=str.upper,
                         help="coin selected at start")
     parser.add_argument("--range", default=RANGES[DEFAULT_RANGE][1],
