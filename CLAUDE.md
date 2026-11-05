@@ -20,7 +20,7 @@ python3 pokemon_types_tui.py [TYPE [TYPE]]    # curses; type matchups, e.g. `fir
 python3 claude_usage_tui.py [--once]   # Claude usage limits, read from ~/.claude.json
 python3 rooster_tui.py [--once]        # curses; work roster from an .ics feed, refetched every 15m
 python3 reminders_tui.py [--once] [--rebuild]   # curses; Apple Reminders, read and write
-python3 crypto_tui.py [--currency eur|usd|…] [--coin XMR] [--range 1D|7D|30D|90D|1Y] [--once]   # CoinGecko API
+python3 crypto_tui.py [--currency usd|eur|…] [--coin XMR] [--range 1D|7D|30D|90D|1Y] [--once]   # CoinGecko API
 python3 btc_tx_check.py <64-hex-txid> [--testnet]     # Blockstream API
 python3 wiki_reader.py <topic> [--lang nl]            # Wikipedia API, pipes to `less -R`
 python3 wiki_tui.py [topic] [--lang nl]               # full-screen Wikipedia browser
