@@ -21,6 +21,7 @@ python3 claude_usage_tui.py [--once]   # Claude usage limits, read from ~/.claud
 python3 rooster_tui.py [--once]        # curses; work roster from an .ics feed, refetched every 15m
 python3 reminders_tui.py [--once] [--rebuild]   # curses; Apple Reminders, read and write
 python3 crypto_tui.py [--currency usd|eur|…] [--coin XMR] [--range 1D|7D|30D|90D|1Y] [--once]   # CoinGecko API
+python3 bbc_tui.py [world|africa|asia|europe|latin|middle|us] [--once]   # BBC News RSS plus full story text
 python3 btc_tx_check.py <64-hex-txid> [--testnet]     # Blockstream API
 python3 wiki_reader.py <topic> [--lang nl]            # Wikipedia API, pipes to `less -R`
 python3 wiki_tui.py [topic] [--lang nl]               # full-screen Wikipedia browser
@@ -36,7 +37,7 @@ installed on this machine and there is no pyproject/ruff.toml** — it runs with
 
 Three shapes exist and each new script should follow one of them:
 
-- **curses TUIs** (`bt_battery_tui`, `crypto_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`, `typing_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
+- **curses TUIs** (`bbc_tui`, `bt_battery_tui`, `crypto_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`, `typing_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
   a `stdscr.timeout(...)` + `stdscr.getch()` event loop, module-level constants for tunables
   (`REFRESH_SECONDS`, `MIN_LEN`/`MAX_LEN`, option tables).
 - **CLI scripts** (`btc_tx_check`, `wiki_reader`): `argparse` in `main()`, raw ANSI escape constants
@@ -380,6 +381,40 @@ hourly 7-day sparkline — and is refetched every `REFRESH_SECONDS`. The big cha
 
 Testing the curses half: a tmux pane plus `capture-pane -p`, at 60×20 (the minimum, where the 1h
 column is dropped) and 80×24.
+
+## bbc_tui.py
+
+A reader for BBC News: the World RSS feed and its six regional feeds as tabs (`SECTIONS`), each
+story opening in the terminal. The list is `parse_feed()` → `build_rows()`; a story is
+`parse_article()` → `article_blocks()` → `layout()`. All of those are pure.
+
+- **RSS carries only a title and a one-line summary**, so the story text comes from scraping the
+  linked page, and that is the part that can break. `ArticleParser` reads the page's `<article>`,
+  a flat run of `data-block` sections. `BLOCK_TAGS` is an allow-list: `text`, `subheadline`, and the
+  captions of `image` and `media`, with `byline` and `metadata` read separately. Anything else
+  (`topicList`, `promoList`, `links`, `flourish`, ...) is navigation or an embed and is dropped.
+  If the BBC redesigns and the blocks disappear, stories degrade to the feed's summary with a note.
+- **Video pages have no blocks**, only loose `<p>`s, which are used only if no block gave any text.
+  A page with under `THIN_WORDS` of text also gets the feed's summary. `story_tag()` classifies
+  video, live and audio links, which have nothing to read in full and say to press `o`.
+- **Text the page holds that a reader never sees has to be removed by hand**: the `, external` span
+  that ends outbound links (only inside `<a>`, so a sentence that really says that survives), the
+  `Image caption, ` prefixes, bullets that are one whole link (promos dropped into the body), and
+  the desk sign-offs in `BOILERPLATE`. A new sign-off is a one-word addition there.
+- A bold-only paragraph becomes `lede`. Links are kept as plain text and can't be followed.
+- `Line.block`/`Line.offset` (non-space characters into the block) are what keep the reader on the
+  same sentence across a resize or the `w` toggle; `line_at()` finds that spot after re-wrapping.
+- Feeds are refetched after `REFRESH_SECONDS` (the feed's `<ttl>`), and only while the list is on
+  screen; the selection follows its story, not its row, because new stories land on top. A failed
+  refresh keeps what is on screen. Read stories dim for this session only; nothing is saved.
+- Feed order is the BBC's editorial order, not chronological, and is kept that way.
+
+Testing: run `parse_article()` + `layout()` over every story in the live feeds (about 140 pages,
+go gently) and assert no line is wider than the width and that no `, external` or `BOILERPLATE`
+text survives. For the curses half, a tmux pane plus `capture-pane -p` (`-e` to see dim and bold),
+at 40×10 (the minimum) and 80×24. Replace `bbc_tui.fetch` with a function that can fail on demand
+to test the failure paths, and lower `REFRESH_SECONDS` for auto-refresh. Replace `bbc_tui.subprocess`
+too, or `o` opens a real browser.
 
 ## pokemon_types_tui.py
 
