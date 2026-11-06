@@ -20,6 +20,7 @@ script runs on its own with `python3`.
 | `crypto_tui.py` | Live BTC, ETH and XMR prices with braille price charts, volume, and a crosshair to read past prices |
 | `compound_tui.py` | Compound interest calculator — a live stacked graph of deposits against interest, readable year by year |
 | `spotify_chart_tui.py` | The top 100 songs on Spotify as a bar chart — daily, weekly and all time, with rank movement |
+| `election_tui.py` | Every US presidential election since 1788, with the electoral map, results and state-by-state table of each |
 | `btc_tx_check.py` | Looks up a Bitcoin transaction by its hash |
 | `bt_battery_tui.py` | Battery levels of connected Bluetooth devices |
 | `usb_speed_tui.py` | Read and write speed of USB drives, sequential and 4K random, with a live graph |
