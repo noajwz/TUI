@@ -22,6 +22,7 @@ python3 rooster_tui.py [--once]        # curses; work roster from an .ics feed, 
 python3 reminders_tui.py [--once] [--rebuild]   # curses; Apple Reminders, read and write
 python3 crypto_tui.py [--currency usd|eur|…] [--coin XMR] [--range 1D|7D|30D|90D|1Y] [--once]   # CoinGecko API
 python3 bbc_tui.py [world|africa|asia|europe|latin|middle|us] [--once]   # BBC News RSS plus full story text
+python3 compound_tui.py [--start N] [--monthly N] [--rate PCT] [--years N] [--compounding daily] [--symbol €]
 python3 btc_tx_check.py <64-hex-txid> [--testnet]     # Blockstream API
 python3 wiki_reader.py <topic> [--lang nl]            # Wikipedia API, pipes to `less -R`
 python3 wiki_tui.py [topic] [--lang nl]               # full-screen Wikipedia browser
@@ -37,7 +38,7 @@ installed on this machine and there is no pyproject/ruff.toml** — it runs with
 
 Three shapes exist and each new script should follow one of them:
 
-- **curses TUIs** (`bbc_tui`, `bt_battery_tui`, `crypto_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`, `typing_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
+- **curses TUIs** (`bbc_tui`, `bt_battery_tui`, `compound_tui`, `crypto_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`, `typing_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
   a `stdscr.timeout(...)` + `stdscr.getch()` event loop, module-level constants for tunables
   (`REFRESH_SECONDS`, `MIN_LEN`/`MAX_LEN`, option tables).
 - **CLI scripts** (`btc_tx_check`, `wiki_reader`): `argparse` in `main()`, raw ANSI escape constants
@@ -415,6 +416,33 @@ text survives. For the curses half, a tmux pane plus `capture-pane -p` (`-e` to 
 at 40×10 (the minimum) and 80×24. Replace `bbc_tui.fetch` with a function that can fail on demand
 to test the failure paths, and lower `REFRESH_SECONDS` for auto-refresh. Replace `bbc_tui.subprocess`
 too, or `o` opens a real browser.
+
+## compound_tui.py
+
+A compound interest calculator: five inputs, a results panel, and a stacked area graph of deposits
+(blue) with interest on top (green). No network and nothing saved. It recalculates on every repaint,
+which is cheap (at most 1200 months), and that is why the graph can follow a number as it is typed:
+`App.current()` applies the unfinished `draft` to a copy of the values, and Esc just drops the draft.
+
+- **Growth is at the equivalent monthly rate**, `(1 + r/n)^(n/12)`, whatever the compounding. Lump
+  sums therefore match `P(1 + r/n)^(nt)` exactly, and monthly deposits at monthly compounding match
+  the ordinary annuity formula; those are the checks to run after touching `project()`. Deposits
+  land at month end. A real account on yearly compounding credits interest once a year, so its
+  balance would climb in steps between those dates where this curve is smooth.
+- **The graph is eighth-blocks, not braille**, because it needs two filled colours. A cell holding
+  the top of the deposits is drawn with the deposits as foreground and the interest as background
+  (`BOTH`). When the top of the balance falls in that same cell there is empty space above too, and
+  a cell cannot show three things, so `area_cell()` paints it in whichever colour has the larger
+  share. That leaves a kink under a cell tall where the interest band is still thin; it can't be
+  removed, only moved.
+- Rates can't go below 0, because the stack assumes the balance is never under the deposits.
+- ←→ change a field and also move the graph cursor, so Tab switches between the two. The graph is
+  read a year at a time, or by the month up to `MONTH_STEP_YEARS`.
+
+`project()`, `nudge()`, `nice_top()`, `area_cell()`, `tick_rows()` and the `fmt_*` helpers are pure.
+Testing the curses half: a tmux pane plus `capture-pane -p`, at 66×20 (the minimum) and 80×24; run it
+with `--start 1000000000000 --monthly 1000000000 --rate 100 --years 100 --compounding daily` for the
+widest numbers. Text capture can't tell a `BOTH` cell from a filled one, so check colours with `-e`.
 
 ## pokemon_types_tui.py
 
