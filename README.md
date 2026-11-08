@@ -10,6 +10,7 @@ script runs on its own with `python3`.
 | --- | --- |
 | `wiki_tui.py` | Full-screen Wikipedia browser — followable links, search, contents, history |
 | `psychonaut_tui.py` | The same browser for PsychonautWiki, with the dosage and duration tables rendered |
+| `archwiki_tui.py` | The same browser for the Arch Wiki — commands you can copy with one key, note and warning boxes, tables drawn as grids |
 | `chan_tui.py` | 4chan reader — boards, catalogs and threads with greentext, quote previews, back-links and a watch mode |
 | `bbc_tui.py` | BBC News world headlines from the RSS feeds, by region, with the full text of each story |
 | `termimage.py` | Shows images in the terminal, as real pixels or as coloured characters |
