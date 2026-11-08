@@ -20,6 +20,7 @@ python3 pokemon_types_tui.py [TYPE [TYPE]]    # curses; type matchups, e.g. `fir
 python3 claude_usage_tui.py [--once]   # Claude usage limits, read from ~/.claude.json
 python3 rooster_tui.py [--once]        # curses; work roster from an .ics feed, refetched every 15m
 python3 reminders_tui.py [--once] [--rebuild]   # curses; Apple Reminders, read and write
+python3 calendar_tui.py [--once [--days N]] [--rebuild]   # curses; Apple Calendar, read-only
 python3 crypto_tui.py [--currency usd|eur|…] [--coin XMR] [--range 1D|7D|30D|90D|1Y] [--once]   # CoinGecko API
 python3 bbc_tui.py [world|africa|asia|europe|latin|middle|us] [--once]   # BBC News RSS plus full story text
 python3 compound_tui.py [--start N] [--monthly N] [--rate PCT] [--years N] [--compounding daily] [--symbol €]
@@ -42,7 +43,7 @@ installed on this machine and there is no pyproject/ruff.toml** — it runs with
 
 Three shapes exist and each new script should follow one of them:
 
-- **curses TUIs** (`bbc_tui`, `bt_battery_tui`, `compound_tui`, `crypto_tui`, `election_tui`, `disk_usage_tui`, `spotify_chart_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`, `typing_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
+- **curses TUIs** (`bbc_tui`, `bt_battery_tui`, `compound_tui`, `crypto_tui`, `election_tui`, `disk_usage_tui`, `spotify_chart_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `calendar_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`, `typing_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
   a `stdscr.timeout(...)` + `stdscr.getch()` event loop, module-level constants for tunables
   (`REFRESH_SECONDS`, `MIN_LEN`/`MAX_LEN`, option tables).
 - **CLI scripts** (`btc_tx_check`, `wiki_reader`): `argparse` in `main()`, raw ANSI escape constants
@@ -367,6 +368,34 @@ the curses half without touching real reminders, import the module, replace `rt.
 fake backed by a saved `dump` (run the helper with `dump` once and keep its stdout), and call
 `curses.wrapper(rt.run_curses, "fake", data)` in a tmux pane: `tmux capture-pane -p` gives the
 screen as text. Please don't test writes against the real store; they sync to the phone.
+
+## calendar_tui.py
+
+Apple Calendar, **read-only**: a month grid, a week, or an agenda, from every account the Calendar
+app shows. It talks to EventKit through the same embedded-Swift-helper arrangement as
+`reminders_tui.py` (compiled into `~/Library/Caches/calendar_tui/ekhelper-<hash>`, `--rebuild` to
+force it), but the helper does one thing only: it reads `{"from": [y, m, d], "to": [y, m, d]}` on
+stdin and answers every calendar plus each event occurrence overlapping that range. EventKit expands
+recurring events into occurrences itself, which is the main reason not to read the store any other
+way. Times cross the wire as `[y, m, d, H, M]` in local time. Permission is TCC's "Calendars" (full
+access), granted to the terminal app; a session with no GUI to show the dialog in gets a denial.
+
+- **Fetches are by range, not everything.** `load_range()` widens what the view needs to whole
+  months (one before, three after); `ensure()` refetches only when the view moves outside what is
+  loaded, and the timed refresh re-reads the loaded range. A failed fetch still marks its range as
+  loaded, so the next draw doesn't hammer the helper; the refresh retries.
+- **An event's last day is `(end - 1 minute).date()`**, so one ending at midnight doesn't spill into
+  the next day. EventKit ends a one-day all-day event at 23:59:59 of that day; that works too.
+  `index_by_day()` puts multi-day events on every day they cover.
+- Hidden calendars (`c`) and the search filter (`/`) apply through `reindex()`, which rebuilds
+  `by_day`; everything draws from that. Both last for the session only.
+
+`index_by_day()`, `month_weeks()`, `agenda_rows()`, `parse_goto()`, `add_months()`, `load_range()`
+and the `*_text`/`format_when` helpers are pure. For the curses half, import the module, replace
+`call_helper` with a fake `(path, start, end) -> (data, None)` and call
+`curses.wrapper(ct.run_curses, "fake", data, loaded)` in a tmux pane. Check 56×14 (the minimum),
+80×24, and something wide like 300×90, where month cells start showing times (`TIMES_MIN`) and the
+agenda adds a place column.
 
 ## typing_tui.py
 
