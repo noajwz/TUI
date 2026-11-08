@@ -23,6 +23,7 @@ script runs on its own with `python3`.
 | `election_tui.py` | Every US presidential election since 1788, with the electoral map, results and state-by-state table of each |
 | `btc_tx_check.py` | Looks up a Bitcoin transaction by its hash |
 | `bt_battery_tui.py` | Battery levels of connected Bluetooth devices |
+| `disk_usage_tui.py` | What is filling the disk, in the manner of WinDirStat — folders by size, a shaded treemap, file types and the largest files, with reveal in Finder and move to Trash |
 | `usb_speed_tui.py` | Read and write speed of USB drives, sequential and 4K random, with a live graph |
 | `pwgen_tui.py` | Password generator with a curses interface |
 | `typing_tui.py` | Typing speed test — timed or word-count runs, WPM, accuracy, a per-second chart and personal bests |
