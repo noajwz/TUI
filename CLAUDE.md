@@ -23,7 +23,7 @@ python3 reminders_tui.py [--once] [--rebuild]   # curses; Apple Reminders, read 
 python3 calendar_tui.py [--once [--days N]] [--rebuild]   # curses; Apple Calendar, read-only
 python3 crypto_tui.py [--currency usd|eur|…] [--coin XMR] [--range 1D|7D|30D|90D|1Y] [--once]   # CoinGecko API
 python3 bbc_tui.py [world|africa|asia|europe|latin|middle|us] [--once]   # BBC News RSS plus full story text
-python3 compound_tui.py [--start N] [--monthly N] [--rate PCT] [--years N] [--compounding daily] [--symbol €]
+python3 compound_tui.py [--start N] [--monthly N] [--rate PCT] [--years N] [--compounding daily] [--symbol $]
 python3 spotify_chart_tui.py [--chart daily|weekly|alltime] [--once]   # top 100 songs, from kworb.net
 python3 election_tui.py [YEAR] [--once]   # curses; every US presidential election, with its electoral map
 python3 disk_usage_tui.py [PATH] [--once [--top N]]   # curses; what fills the disk (default /), WinDirStat-like
@@ -515,6 +515,8 @@ which is cheap (at most 1200 months), and that is why the graph can follow a num
   share. That leaves a kink under a cell tall where the interest band is still thin; it can't be
   removed, only moved.
 - Rates can't go below 0, because the stack assumes the balance is never under the deposits.
+- Amounts default to euros; `c` switches to dollars and back (`SYMBOLS`), and `--symbol` takes any
+  other symbol, which then joins the cycle. It only changes the symbol: there is no exchange rate.
 - ←→ change a field and also move the graph cursor, so Tab switches between the two. The graph is
   read a year at a time, or by the month up to `MONTH_STEP_YEARS`.
 

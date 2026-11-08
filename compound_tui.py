@@ -14,6 +14,7 @@ FIELDS = [
     ("years", "Years", 1, 100, 1),
 ]
 SCALED_STEPS = {"start", "monthly"}            # these step by a tenth of their order of magnitude
+SYMBOLS = ["€", "$"]                          # `c` cycles these; --symbol accepts any
 COMPOUNDING = [("yearly", 1), ("quarterly", 4), ("monthly", 12), ("daily", 365)]
 COMPOUNDING_ROW = len(FIELDS)
 ROWS = COMPOUNDING_ROW + 1
@@ -215,6 +216,7 @@ class App:
     def __init__(self, values, compounding, sym):
         self.values = values
         self.compounding = compounding        # index into COMPOUNDING
+        self.symbols = SYMBOLS if sym in SYMBOLS else [sym] + SYMBOLS
         self.sym = sym
         self.row = 0
         self.draft = None                     # text being typed into the selected field
@@ -258,6 +260,9 @@ class App:
         years = self.values["years"]
         step = 1 if years <= MONTH_STEP_YEARS else 12
         self.cursor = max(0, min(years * 12, self.cursor + direction * step))
+
+    def next_symbol(self):
+        return self.symbols[(self.symbols.index(self.sym) + 1) % len(self.symbols)]
 
     def start_inspecting(self):
         self.inspecting = True
@@ -394,8 +399,8 @@ class App:
             return ["enter ok", "esc cancel", "↑↓ next field"]
         if self.inspecting:
             unit = "month" if years <= MONTH_STEP_YEARS else "year"
-            return [f"←→ {unit}", "tab back", "q quit"]
-        return ["↑↓ field", "←→ change", "0-9 type", "tab read graph", "q quit"]
+            return [f"←→ {unit}", "tab back", f"c {self.next_symbol()}", "q quit"]
+        return ["↑↓ field", "←→ change", "0-9 type", "tab read graph", f"c {self.next_symbol()}", "q quit"]
 
 
 def runs_of(cells):
@@ -494,6 +499,8 @@ def run(stdscr, app):
             handle_draft_key(app, key)
         elif key in (ord("q"), ord("Q")):
             return
+        elif key == ord("c"):
+            app.sym = app.next_symbol()
         elif app.inspecting:
             handle_inspect_key(app, key)
         else:
@@ -508,7 +515,7 @@ def main():
     parser.add_argument("--years", type=int, default=DEFAULTS["years"], help="how many years, 1 to 100")
     parser.add_argument("--compounding", default=DEFAULTS["compounding"], type=str.lower,
                         choices=[c[0] for c in COMPOUNDING], help="how often interest compounds")
-    parser.add_argument("--symbol", default="$", help="currency symbol, e.g. € (default $)")
+    parser.add_argument("--symbol", default=SYMBOLS[0], help=f"currency symbol, e.g. $ (default {SYMBOLS[0]})")
     args = parser.parse_args()
 
     values = {f[0]: clamp_field(f[0], getattr(args, f[0])) for f in FIELDS}
