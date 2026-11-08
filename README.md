@@ -16,6 +16,7 @@ script runs on its own with `python3`.
 | `claude_usage_tui.py` | Live view of how much of your Claude usage limits is spent |
 | `rooster_tui.py` | Work roster from an `.ics` subscription feed, re-fetched while you watch |
 | `reminders_tui.py` | Apple Reminders in the terminal: tick off, add, reschedule, edit notes |
+| `calendar_tui.py` | Apple Calendar in the terminal — month, week and agenda views of every account, read-only |
 | `wiki_reader.py` | One-shot Wikipedia reader that pipes into `less` |
 | `crypto_tui.py` | Live BTC, ETH and XMR prices with braille price charts, volume, and a crosshair to read past prices |
 | `compound_tui.py` | Compound interest calculator — a live stacked graph of deposits against interest, readable year by year |
@@ -37,4 +38,4 @@ script runs on its own with `python3`.
 [noajwz/ascii_city](https://github.com/noajwz/ascii_city).
 
 Written on macOS — a few of them lean on `system_profiler`, `pbcopy` and `sips`, and
-`reminders_tui.py` compiles a small Swift helper with `swiftc` on first run (Command Line Tools).
+`reminders_tui.py` and `calendar_tui.py` compile a small Swift helper with `swiftc` on first run (Command Line Tools).
