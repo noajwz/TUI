@@ -766,10 +766,12 @@ class App:
         if not os.path.exists(TERMIMAGE):
             self.message = "Not available: termimage.py is not next to chan_tui.py - try i instead."
             return
+        # The picture fills the window, less the four lines above it and the two below.
+        height = max(1, self.stdscr.getmaxyx()[0] - 6)
         curses.endwin()
         print(f"\n  {label}\n  {url}\n", flush=True)
         try:
-            subprocess.run([sys.executable, TERMIMAGE, url], check=False)
+            subprocess.run([sys.executable, TERMIMAGE, url, "--height", str(height)], check=False)
             input("\n  Enter to return ")
         except (OSError, EOFError, KeyboardInterrupt):
             pass

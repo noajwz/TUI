@@ -29,7 +29,9 @@ ASCII_RAMP = " .:-=+*#%@"
 
 # A cell is roughly twice as tall as it is wide; used when the terminal won't tell us.
 DEFAULT_CELL_ASPECT = 2.0
-DEFAULT_MAX_COLS = 60
+DEFAULT_CELL_WIDTH_PX = 16
+# The block modes decode at up to this many source pixels per drawn pixel, for the box filter.
+BLOCK_OVERSAMPLE = 4
 # Adam7 interlace passes: (x offset, y offset, x step, y step)
 ADAM7 = ((0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4),
          (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2))
@@ -63,6 +65,8 @@ def png_size(data):
     """Width and height straight from the IHDR chunk, without decoding pixels."""
     if data[:8] != PNG_MAGIC:
         raise Unsupported("not a PNG")
+    if len(data) < 24:
+        raise Unsupported("truncated PNG header")
     width, height = struct.unpack(">II", data[16:24])
     return width, height
 
@@ -279,16 +283,25 @@ def sips_convert(data, max_dim=None):
             return handle.read()
 
 
-def ensure_png(data, max_dim=None):
-    """PNG bytes suitable for the kitty protocol, converting other formats if needed."""
-    already_png = data[:8] == PNG_MAGIC
-    if already_png and (max_dim is None or not shutil.which("sips")):
-        return data                      # shrinking is only an optimisation; sending it whole works
-    return sips_convert(data, max_dim)
+def ensure_png(data):
+    """PNG bytes, converting other formats if needed."""
+    return data if data[:8] == PNG_MAGIC else sips_convert(data)
 
 
-def load_image(data):
-    """An Image, falling back to sips when the built-in decoder meets an exotic PNG."""
+def shrink_png(png, max_dim):
+    """Downscale so neither side exceeds max_dim, but never enlarge: sips -Z would."""
+    if max(png_size(png)) <= max_dim or not shutil.which("sips"):
+        return png                       # shrinking is only an optimisation; sending it whole works
+    return sips_convert(png, max_dim)
+
+
+def load_image(data, max_dim=None):
+    """An Image, falling back to sips when the built-in decoder meets an exotic PNG.
+
+    With max_dim a bigger picture is shrunk first: decoding a 12 MP photo in Python takes seconds,
+    only for nearly every pixel to be averaged away by resize()."""
+    if max_dim and shutil.which("sips"):
+        data = shrink_png(ensure_png(data), max_dim)
     try:
         return decode_png(data)
     except Unsupported:
@@ -342,13 +355,24 @@ def terminal_size():
     return cols or 80, rows or 24, cell_w, cell_h
 
 
-def fit_cells(image_width, image_height, max_cols):
-    """Cell box that preserves the picture's aspect ratio."""
+def fit_cells(image_width, image_height, max_cols, max_rows):
+    """The largest cell box within max_cols x max_rows that preserves the picture's aspect ratio."""
     _cols, _rows, cell_w, cell_h = terminal_size()
     aspect = (cell_h / cell_w) if cell_w and cell_h else DEFAULT_CELL_ASPECT
     cols = max(1, max_cols)
     rows = max(1, round(cols * (image_height / image_width) / aspect))
+    if rows > max_rows:                                # too tall: let the height decide instead
+        rows = max(1, max_rows)
+        cols = max(1, min(max_cols, round(rows * aspect * image_width / image_height)))
     return cols, rows
+
+
+def box_pixels(cols, rows):
+    """The longer side, in screen pixels, of a cols x rows cell box."""
+    _cols, _rows, cell_w, cell_h = terminal_size()
+    cell_w = cell_w or DEFAULT_CELL_WIDTH_PX
+    cell_h = cell_h or round(cell_w * DEFAULT_CELL_ASPECT)
+    return max(cols * cell_w, rows * cell_h)
 
 
 # --------------------------------------------- approach A: block characters
@@ -494,19 +518,20 @@ def choose_mode(requested):
     return "ascii"
 
 
-def show(data, mode, max_cols, background, transfer, image_id=None):
+def show(data, mode, max_cols, max_rows, background, transfer, image_id=None):
     """Render the image bytes and return the mode actually used."""
     if mode == "kitty":
-        png = ensure_png(data, max_dim=max(320, max_cols * 16))
-        width, height = png_size(png)
-        cols, rows = fit_cells(width, height, max_cols)
+        png = ensure_png(data)
+        cols, rows = fit_cells(*png_size(png), max_cols, max_rows)
+        # Sent at the box's real pixel size: sharp, and no bigger than the terminal can show.
+        png = shrink_png(png, box_pixels(cols, rows))
         kitty_show(png, cols, rows, image_id, transfer)
         sys.stdout.write("\n")                 # the terminal moved to the bottom row; go below it
         sys.stdout.flush()
         return "kitty"
 
-    image = load_image(data)
-    cols, rows = fit_cells(image.width, image.height, max_cols)
+    image = load_image(data, BLOCK_OVERSAMPLE * max(max_cols, max_rows * 2))
+    cols, rows = fit_cells(image.width, image.height, max_cols, max_rows)
     lines = render_blocks(image, cols, rows, background) if mode == "blocks" \
         else render_ascii(image, cols, rows)
     print("\n".join(lines))
@@ -530,7 +555,9 @@ def main():
                         choices=["auto", "kitty", "blocks", "ascii", "both"],
                         help="auto detects the terminal; both shows kitty and blocks together")
     parser.add_argument("--width", type=int, default=0,
-                        help=f"width in cells (default: {DEFAULT_MAX_COLS}, capped to the terminal)")
+                        help="most columns to use (default and cap: the window's width)")
+    parser.add_argument("--height", type=int, default=0,
+                        help="most rows to use (default and cap: the window's height)")
     parser.add_argument("--bg", type=parse_colour, default=(0, 0, 0),
                         help="background colour composited under transparency (default: 000000)")
     parser.add_argument("--transfer", default="auto", choices=["auto", "direct", "file"],
@@ -560,10 +587,15 @@ def main():
     if not args.source and not args.wiki:
         parser.error("give an image path or URL, or --wiki TOPIC")
 
+    # As big as the window allows, less the last column (autowrap), the prompt line and the title.
+    term_cols, term_rows, _, _ = terminal_size()
+    cols = max(1, min(args.width or term_cols, term_cols - 1))
+    rows = max(1, min(args.height or term_rows, term_rows - 1 - bool(args.wiki)))
+
     title = None
     try:
         if args.wiki:
-            url, title = wiki_lead_image(args.lang, args.wiki)
+            url, title = wiki_lead_image(args.lang, args.wiki, max(640, box_pixels(cols, rows)))
             if not url:
                 print(f"No lead image for '{args.wiki}'.", file=sys.stderr)
                 sys.exit(1)
@@ -574,9 +606,6 @@ def main():
         print(f"Could not read the image: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    cols = args.width or DEFAULT_MAX_COLS
-    cols = min(cols, terminal_size()[0] - 1)
-
     if title:
         print(f"{ESC}[1m{title}{ESC}[0m")
 
@@ -584,13 +613,13 @@ def main():
         if args.mode == "both":
             print(f"{ESC}[2m-- approach B: kitty graphics protocol --{ESC}[0m")
             if kitty_supported():
-                show(data, "kitty", cols, args.bg, args.transfer)
+                show(data, "kitty", cols, rows, args.bg, args.transfer)
             else:
                 print("   (this terminal did not answer the kitty graphics query)")
             print(f"{ESC}[2m-- approach A: half-block characters --{ESC}[0m")
-            show(data, "blocks", cols, args.bg, args.transfer)
+            show(data, "blocks", cols, rows, args.bg, args.transfer)
         else:
-            show(data, choose_mode(args.mode), cols, args.bg, args.transfer)
+            show(data, choose_mode(args.mode), cols, rows, args.bg, args.transfer)
     except Unsupported as exc:
         print(f"Cannot display this image: {exc}", file=sys.stderr)
         sys.exit(1)
