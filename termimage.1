@@ -89,6 +89,9 @@ How the image reaches a kitty-capable terminal.
 .B file
 writes a temporary file and sends only its path, which is a hundred-byte escape
 sequence rather than megabytes of base64; the terminal deletes the file itself.
+The file's name contains
+.B tty\-graphics\-protocol ,
+which Ghostty requires before it will read a temporary file.
 .B direct
 encodes the image inline in 4 KiB chunks, which is what you need when the
 terminal is at the other end of an

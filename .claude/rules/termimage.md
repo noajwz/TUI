@@ -19,6 +19,13 @@ after editing it — it currently lints clean). Keep it in step with the argpars
   PNG itself and let the terminal draw it. `t=t` hands over a *temp file path* instead of the pixels
   (~100 byte escape instead of megabytes; the terminal deletes the file), and `t=d` base64s the image
   inline in 4096-byte chunks for when the terminal is on the far end of an SSH connection.
+  - The temp file's name **must contain `tty-graphics-protocol`**: Ghostty refuses any other path
+    with `EINVAL: temporary file not named correctly`, and the file is then never deleted.
+  - Placements carry `q=2` and **no `i=`**. An explicit id makes the terminal reply on stdin, where
+    the answer lands at the shell prompt or `chan_tui`'s "Enter to return", and reusing an id makes
+    the terminal delete the earlier picture still on screen.
+  - The terminal itself moves the cursor to the picture's bottom row (no `C=1`), so `show()` writes
+    a single `\n` after it. Writing `rows` newlines leaves a gap as tall as the picture.
 
 `kitty_supported()` asks the terminal rather than guessing from `$TERM`: it sends a graphics query with
 a DA1 query (`ESC[c`) chasing it, so there is always a reply to wait for — if DA1 answers and no `_G`
