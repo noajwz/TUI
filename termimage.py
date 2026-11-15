@@ -438,17 +438,23 @@ def kitty_supported(timeout=0.4):
     return "_G" in reply
 
 
-def kitty_show(png, cols, rows, image_id=1, transfer="auto"):
-    """Place a PNG into a cols x rows box at the cursor."""
+def kitty_show(png, cols, rows, image_id=None, transfer="auto"):
+    """Place a PNG into a cols x rows box at the cursor, leaving the cursor on its bottom row."""
     if transfer == "auto":
         transfer = "direct" if os.environ.get("SSH_CONNECTION") else "file"
 
-    placement = f"a=T,f=100,i={image_id},c={cols},r={rows}"
+    # q=2: no reply, which would otherwise arrive on stdin and show up at the prompt.
+    # Without an id the terminal picks one, so an earlier picture is never replaced.
+    placement = f"a=T,f=100,q=2,c={cols},r={rows}"
+    if image_id:
+        placement += f",i={image_id}"
 
     if transfer == "file":
         # t=t hands over a path instead of the pixels: a ~100 byte escape rather than megabytes.
-        # The terminal deletes the file once it has read it.
-        handle = tempfile.NamedTemporaryFile(prefix="termimage-", suffix=".png", delete=False)
+        # The terminal deletes the file once it has read it. Ghostty refuses a path without
+        # "tty-graphics-protocol" in it, as the protocol says terminals may.
+        handle = tempfile.NamedTemporaryFile(prefix="tty-graphics-protocol-termimage-",
+                                             suffix=".png", delete=False)
         try:
             handle.write(png)
             handle.close()
@@ -470,7 +476,7 @@ def kitty_show(png, cols, rows, image_id=1, transfer="auto"):
     sys.stdout.flush()
 
 
-def kitty_delete(image_id=1):
+def kitty_delete(image_id):
     sys.stdout.write(kitty_escape(f"a=d,d=i,i={image_id}"))
     sys.stdout.flush()
 
@@ -488,14 +494,14 @@ def choose_mode(requested):
     return "ascii"
 
 
-def show(data, mode, max_cols, background, transfer, image_id=1):
+def show(data, mode, max_cols, background, transfer, image_id=None):
     """Render the image bytes and return the mode actually used."""
     if mode == "kitty":
         png = ensure_png(data, max_dim=max(320, max_cols * 16))
         width, height = png_size(png)
         cols, rows = fit_cells(width, height, max_cols)
         kitty_show(png, cols, rows, image_id, transfer)
-        sys.stdout.write("\n" * rows)          # step the cursor past the picture
+        sys.stdout.write("\n")                 # the terminal moved to the bottom row; go below it
         sys.stdout.flush()
         return "kitty"
 
