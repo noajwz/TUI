@@ -27,7 +27,9 @@ clears its filter, before the screen itself is popped.
 - Spoilers are hidden at *draw* time by swapping each character for `░` of the same width, so `s`
   needs no re-layout. "Replies:" back-links are computed from the parsed quotes (`backlinks()`).
 - `v` shows a post's image in the terminal by running `termimage.py` as a **subprocess** if it is
-  next to the script (videos get their thumbnail); `chan_tui` must keep working without it.
+  next to the script (videos get their thumbnail); `chan_tui` must keep working without it. It
+  passes `--height` as the window less 6 rows, so the label above and "Enter to return" below stay
+  on screen while the picture fills the rest.
 
 Testing: `parse_comment()`, `wrap_runs()`, `layout_thread()` and `catalog_entry()` are pure — run
 them on a saved `thread.json`/`catalog.json` and assert no `doc.plain(row)` is wider than the width.

@@ -15,6 +15,11 @@ after editing it — it currently lints clean). Keep it in step with the argpars
 - **Approach A, characters** (works anywhere): decode to RGBA, box-filter resample, then print `▀`
   per cell with the foreground set to the top pixel and the background to the bottom — two pixels per
   cell. `render_ascii()` is the further fallback for terminals without 24-bit colour.
+- **Size**: by default the largest box that fits the window — `--width`/`--height` lower the
+  limits, never raise them — leaving the last column, the prompt line and the `--wiki` title free.
+  `fit_cells()` fits by width, then by height if that is too tall. The block modes have `sips` shrink
+  the source to `BLOCK_OVERSAMPLE` times the drawn pixels before decoding: a 12 MP JPEG took 7 s
+  in the pure-Python decoder, against well under a second shrunk.
 - **Approach B, real pixels** (kitty graphics protocol, which Ghostty and kitty both speak): send the
   PNG itself and let the terminal draw it. `t=t` hands over a *temp file path* instead of the pixels
   (~100 byte escape instead of megabytes; the terminal deletes the file), and `t=d` base64s the image
@@ -24,6 +29,9 @@ after editing it — it currently lints clean). Keep it in step with the argpars
   - Placements carry `q=2` and **no `i=`**. An explicit id makes the terminal reply on stdin, where
     the answer lands at the shell prompt or `chan_tui`'s "Enter to return", and reusing an id makes
     the terminal delete the earlier picture still on screen.
+  - The picture is sent at its on-screen pixel size (`box_pixels()`, from the cell size
+    `TIOCGWINSZ` reports) and only ever shrunk: `sips -Z` enlarges too, so `shrink_png()` checks
+    first.
   - The terminal itself moves the cursor to the picture's bottom row (no `C=1`), so `show()` writes
     a single `\n` after it. Writing `rows` newlines leaves a gap as tall as the picture.
 

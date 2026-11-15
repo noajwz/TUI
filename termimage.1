@@ -65,8 +65,17 @@ draws the picture twice, once each way, with labels \(en the quickest way to
 see what your terminal is capable of.
 .TP
 .BI \-\-width " cells"
-How many columns wide to draw the picture. The height follows from the image's
-aspect ratio. Defaults to 60, and is capped to the width of the window.
+The most columns the picture may use. Defaults to, and is capped to, the width
+of the window.
+.TP
+.BI \-\-height " rows"
+The most rows the picture may use. Defaults to, and is capped to, the height of
+the window, less the line for the prompt and the article title.
+.PP
+The picture is drawn as large as fits inside both limits without changing its
+aspect ratio, so by default it fills the window. With the kitty protocol the
+image is sent at the size it will appear on screen: larger images are shrunk
+first, smaller ones are left for the terminal to enlarge.
 .TP
 .BI \-\-wiki " topic"
 Use the lead image of this Wikipedia article. The article title is printed
