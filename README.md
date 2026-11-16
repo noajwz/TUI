@@ -28,6 +28,7 @@ script runs on its own with `python3`.
 | `bt_battery_tui.py` | Battery levels of connected Bluetooth devices |
 | `disk_usage_tui.py` | What is filling the disk, in the manner of WinDirStat — folders by size, a shaded treemap, file types and the largest files, with reveal in Finder and move to Trash |
 | `usb_speed_tui.py` | Read and write speed of USB drives, sequential and 4K random, with a live graph |
+| `file_tool_tui.py` | Duplicate files and bulk renaming — duplicates found by size and hash with one copy of each always kept, and renames by find and replace, regex, a numbering template, case and extension, previewed with conflicts before anything changes, and undoable |
 | `folder_watch_tui.py` | Watches a folder for changes — files created, deleted, modified and renamed below it, as a live log with an activity strip |
 | `test_watch_tui.py` | Reruns a Python project's tests on every save (unittest or pytest) — failures first, tracebacks a key away, rerun only what failed, jump to the line in your editor |
 | `csv_tui.py` | CSV and TSV files as a spreadsheet — sort, search, filter, one record at a time, statistics per column; guesses the delimiter and encoding, Dutch Excel exports included |
