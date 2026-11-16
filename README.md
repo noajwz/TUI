@@ -31,6 +31,7 @@ script runs on its own with `python3`.
 | `folder_watch_tui.py` | Watches a folder for changes — files created, deleted, modified and renamed below it, as a live log with an activity strip |
 | `test_watch_tui.py` | Reruns a Python project's tests on every save (unittest or pytest) — failures first, tracebacks a key away, rerun only what failed, jump to the line in your editor |
 | `csv_tui.py` | CSV and TSV files as a spreadsheet — sort, search, filter, one record at a time, statistics per column; guesses the delimiter and encoding, Dutch Excel exports included |
+| `md_tui.py` | Markdown reader — tables, code, quotes and footnotes rendered, links followable between files, contents, search, and a live redraw while you edit |
 | `text_stats_tui.py` | Lines of code, comments and blanks per programming language, word frequency, and text metrics — readability, line endings, indentation, encodings, TODOs |
 | `pwgen_tui.py` | Password generator with a curses interface |
 | `typing_tui.py` | Typing speed test — timed or word-count runs, WPM, accuracy, a per-second chart and personal bests |
