@@ -23,7 +23,7 @@ script runs on its own with `python3`.
 | `compound_tui.py` | Compound interest calculator — a live stacked graph of deposits against interest, readable year by year |
 | `spotify_chart_tui.py` | The top 100 songs on Spotify as a bar chart — daily, weekly and all time, with rank movement |
 | `election_tui.py` | Every US presidential election since 1788, with the electoral map, results and state-by-state table of each |
-| `git_glance_tui.py` | Recent commits of GitHub repos at a glance — one feed across every repo, 14-day activity per repo, and each commit's message and changed files |
+| `git_glance_tui.py` | Recent commits of GitHub repos at a glance — one feed across every repo, 14-day activity per repo, each branch's lead or lag on the default branch, and each commit's message and changed files |
 | `btc_tx_check.py` | Looks up a Bitcoin transaction by its hash |
 | `bt_battery_tui.py` | Battery levels of connected Bluetooth devices |
 | `disk_usage_tui.py` | What is filling the disk, in the manner of WinDirStat — folders by size, a shaded treemap, file types and the largest files, with reveal in Finder and move to Trash |

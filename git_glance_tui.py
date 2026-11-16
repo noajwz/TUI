@@ -29,6 +29,8 @@ COMMITS_PER_REPO = 30              # one page per repo; the feed is these merged
 REFRESH_SECONDS = 300              # a refresh re-lists the repos, refetching only those pushed to since
 SPARK_DAYS = 14
 WORKERS = 6
+MAX_COMPARES = 10                  # branches per repo compared with the default branch, one call each
+RATE_RESERVE = 5                   # calls the branch comparisons leave unspent, for the next refresh
 MESSAGE_SECONDS = 4
 MIN_W, MIN_H = 50, 12
 
@@ -115,7 +117,8 @@ def parse_time(text):
 def repo_record(r):
     return {"name": r["full_name"], "short": r["name"], "pushed": r.get("pushed_at") or "",
             "url": r["html_url"], "description": r.get("description") or "",
-            "fork": bool(r.get("fork")), "private": bool(r.get("private"))}
+            "fork": bool(r.get("fork")), "private": bool(r.get("private")),
+            "default": r.get("default_branch") or "main"}
 
 
 def fetch_repos(target, limit=MAX_REPOS):
@@ -154,6 +157,37 @@ def fetch_commits(repo):
         return [commit_record(repo, c) for c in data], None
     except (KeyError, TypeError, ValueError, AttributeError):
         return None, f"{repo}: unexpected commit data"
+
+
+def fetch_branches(repo):
+    """The repo's branches, the default one first: one call, the first 100."""
+    data, err = api_get(f"/repos/{repo['name']}/branches", {"per_page": 100})
+    if err:
+        return None, f"{repo['name']} branches: {err}"
+    try:
+        found = [{"name": b["name"], "sha": b["commit"]["sha"], "protected": bool(b.get("protected")),
+                  "default": b["name"] == repo["default"]} for b in data]
+    except (KeyError, TypeError):
+        return None, f"{repo['name']}: unexpected branch data"
+    return sorted(found, key=lambda b: (not b["default"], b["name"].lower())), None
+
+
+def fetch_compare(key):
+    """How far head is ahead of and behind base, keyed (repo, base sha, head sha); the commits ahead come
+    along (up to 250), newest first, so a branch's own commits need no call of their own."""
+    repo, base, head = key
+    data, err = api_get(f"/repos/{repo}/compare/{base}...{head}")
+    if err:
+        return None, err
+    try:
+        ahead = [commit_record(repo, c) for c in data.get("commits") or []][::-1]
+        tip = ahead[0] if ahead and len(ahead) == data["ahead_by"] else None
+        if not data["ahead_by"] and data.get("merge_base_commit"):
+            tip = commit_record(repo, data["merge_base_commit"])    # nothing ahead: the head is the merge base
+        return {"ahead": data["ahead_by"], "behind": data["behind_by"], "commits": ahead,
+                "when": tip["when"] if tip else None, "author": tip["author"] if tip else None}, None
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None, "unexpected compare data"
 
 
 def person(p):
@@ -200,13 +234,20 @@ class Glance:
         self.pairs = {}            # name -> colour pair
         self.details = {}          # sha -> detail record, error string, or None while on its way
         self.errors = []           # problems from the last refresh
+        self.branches = {}         # name -> [branch], default first; only fetched once the tab is opened
+        self.branch_pushed = {}    # name -> the pushed_at its branches were listed at
+        self.branch_tried = {}     # name -> the pushed_at last attempted, so a failure isn't retried every frame
+        self.compares = {}         # (repo, base sha, head sha) -> compare record, or an error string
+        self.branch_errors = []
+        self.branches_wanted = False
+        self.branches_loading = False
         self.loading = False
         self.loaded = False        # a refresh has finished at least once
         self.refreshed_at = 0.0    # when the last refresh started
         self.lock = threading.Lock()
 
     def refresh(self, force=False):
-        if self.loading or (not force and time.time() - self.refreshed_at < REFRESH_SECONDS):
+        if self.loading or self.branches_loading or (not force and time.time() - self.refreshed_at < REFRESH_SECONDS):
             return
         self.loading = True
         self.refreshed_at = time.time()
@@ -239,8 +280,74 @@ class Glance:
         with self.lock:
             self.by_target, self.repos, self.commits, self.fetched = by_target, repos, commits, fetched
             self.labels, self.pairs, self.errors = labels, pairs, errors
+            branches = self.branches_wanted and not self.branches_loading
+            self.branches_loading = self.branches_loading or branches
             self.loaded, self.loading = True, False
+        if branches:
+            self.load_branches()
 
+    def want_branches(self):
+        """Called while the branches tab is open: fetches what hasn't been tried at the current pushed_at."""
+        self.branches_wanted = True
+        with self.lock:
+            if self.loading or self.branches_loading or not self.loaded:
+                return
+            if not any(self.branch_tried.get(n) != r["pushed"] for n, r in self.repos.items()):
+                return
+            self.branches_loading = True
+        threading.Thread(target=self.load_branches, daemon=True).start()
+
+    def load_branches(self):
+        """Lists the branches of repos pushed to since they were last listed, then compares every branch
+        whose head or default head moved. Comparisons stop RATE_RESERVE calls short of the limit. The caller
+        sets branches_loading, under the lock, so only one of these runs at a time."""
+        try:
+            repos = self.repo_list()
+            stale = [r for r in repos if self.branch_pushed.get(r["name"]) != r["pushed"]]
+            for r in stale:
+                self.branch_tried[r["name"]] = r["pushed"]
+            errors = []
+            with ThreadPoolExecutor(WORKERS) as pool:
+                listings = list(pool.map(fetch_branches, stale))
+                branches = {r["name"]: self.branches[r["name"]] for r in repos if r["name"] in self.branches}
+                pushed = {n: self.branch_pushed[n] for n in branches if n in self.branch_pushed}
+                for r, (found, err) in zip(stale, listings):
+                    if err:
+                        errors.append(err)
+                    else:
+                        branches[r["name"]], pushed[r["name"]] = found, r["pushed"]
+                jobs, compares = [], {}
+                for name, bs in branches.items():
+                    default = next((b for b in bs if b["default"]), None)
+                    for b in [b for b in bs if not b["default"]][:MAX_COMPARES] if default else []:
+                        key = (name, default["sha"], b["sha"])
+                        if b["sha"] == default["sha"]:
+                            compares[key] = {"ahead": 0, "behind": 0, "commits": [], "when": None, "author": None}
+                        elif isinstance(self.compares.get(key), dict):
+                            compares[key] = self.compares[key]
+                        else:
+                            jobs.append(key)
+                if RATE and RATE["remaining"] - RATE_RESERVE < len(jobs):
+                    spare = max(0, RATE["remaining"] - RATE_RESERVE)
+                    errors.append(f"{len(jobs) - spare} branches not compared: the API limit is nearly spent")
+                    jobs = jobs[:spare]
+                for key, (found, err) in zip(jobs, pool.map(fetch_compare, jobs)):
+                    compares[key] = found or err
+            with self.lock:
+                self.branches, self.branch_pushed, self.compares = branches, pushed, compares
+                self.branch_errors = errors
+        finally:
+            self.branches_loading = False
+
+    def branch_commits(self, repo, branch):
+        """The commits a branch has that the default branch doesn't, newest first."""
+        found = self.compare(repo, branch)
+        return list(found["commits"]) if isinstance(found, dict) else []
+
+    def compare(self, repo, branch):
+        """The branch's compare record, an error string, or None (not compared, or on its way)."""
+        default = next((b for b in self.branches.get(repo, []) if b["default"]), None)
+        return self.compares.get((repo, default["sha"], branch["sha"])) if default else None
     def repo_list(self):
         with self.lock:
             return sorted(self.repos.values(), key=lambda r: r["pushed"], reverse=True)
@@ -381,10 +488,12 @@ def dim():
 class UI:
     def __init__(self, glance):
         self.g = glance
-        self.view = "feed"         # feed, repos or detail
+        self.view = "feed"         # feed, repos, branches or detail
         self.repo = None           # the repo the feed is narrowed to, from the repos view
-        self.sel = {"feed": 0, "repos": 0}
-        self.top = {"feed": 0, "repos": 0}
+        self.branch = None         # (repo, branch) whose own commits the feed shows, from the branches view
+        self.sel = {"feed": 0, "repos": 0, "branches": 0}
+        self.top = {"feed": 0, "repos": 0, "branches": 0}
+        self.sel_branch = None     # (repo, branch name) of the selected branch, kept across refreshes
         self.sel_key = None        # (repo, sha) of the selected commit, so a refresh doesn't move it
         self.commit = None         # the commit the detail view shows
         self.scroll = 0
@@ -396,8 +505,14 @@ class UI:
     def repo_attr(self, name):
         return curses.color_pair(self.g.pairs.get(name, 1))
 
+    def scope(self):
+        """The commits the feed lists: a branch's own, one repo's, or everyone's."""
+        if self.branch:
+            return self.g.branch_commits(*self.branch)
+        return self.g.feed(self.repo)
+
     def feed_commits(self):
-        commits = self.g.feed(self.repo)
+        commits = self.scope()
         keys = [(c["repo"], c["sha"]) for c in commits]
         if self.sel_key in keys:
             self.sel["feed"] = keys.index(self.sel_key)
@@ -412,8 +527,11 @@ class UI:
     def move(self, step, total, view=None):
         view = view or self.view
         self.sel[view] = max(0, min(self.sel[view] + step, total - 1))
+        if view == "branches":
+            rows = [row for row in self.branch_rows()[0] if row[1]]
+            self.sel_branch = (rows[self.sel[view]][0]["name"], rows[self.sel[view]][1]["name"]) if rows else None
         if view == "feed":
-            commits = self.g.feed(self.repo)
+            commits = self.scope()
             self.sel_key = (commits[self.sel[view]]["repo"], commits[self.sel[view]]["sha"]) if commits else None
 
     # -------------------------------------------------------- frame
@@ -428,6 +546,8 @@ class UI:
         body_h = h - 3
         if self.view == "repos":
             self.draw_repos(scr, 2, body_h, w)
+        elif self.view == "branches":
+            self.draw_branches(scr, 2, body_h, w)
         elif self.view == "detail" and self.commit:
             self.draw_detail(scr, 2, body_h, w)
         else:
@@ -436,14 +556,19 @@ class UI:
 
     def draw_header(self, scr, w):
         runs = [(" git glance ", curses.color_pair(1) | curses.A_BOLD), ("  ", 0)]
-        for name, label in (("feed", "Feed"), ("repos", "Repos")):
+        for name, label in (("feed", "Feed"), ("repos", "Repos"), ("branches", "Branches")):
             active = self.view == name or (name == "feed" and self.view == "detail")
             runs += [(f" {label} ", curses.A_REVERSE if active else dim()), (" ", 0)]
-        if self.repo and self.view != "repos":
+        if self.branch and self.view in ("feed", "detail"):
+            repo, b = self.branch
+            runs += [("› ", dim()), (self.g.labels.get(repo, repo), self.repo_attr(repo) | curses.A_BOLD),
+                     (" › ", dim()), (b["name"], curses.A_BOLD)]
+        elif self.repo and self.view not in ("repos", "branches"):
             runs += [("› ", dim()), (self.g.labels.get(self.repo, self.repo), self.repo_attr(self.repo) | curses.A_BOLD)]
         put_runs(scr, 0, 0, runs, w)
-        if self.g.loading:
-            status = f"{SPINNER[int(time.time() * 8) % len(SPINNER)]} fetching"
+        if self.g.loading or self.g.branches_loading:
+            what = "fetching" if self.g.loading else "comparing branches"
+            status = f"{SPINNER[int(time.time() * 8) % len(SPINNER)]} {what}"
         elif self.g.loaded and self.g.errors and not self.g.repos:
             status = "fetch failed"
         elif self.g.loaded:
@@ -460,14 +585,16 @@ class UI:
         room = w - len(rate) - 3
         if self.message and time.time() - self.message_at < MESSAGE_SECONDS:
             put(scr, y, 1, fit(self.message, room), w, self.message_attr)
-        elif self.g.errors:
-            more = f" (+{len(self.g.errors) - 1} more)" if len(self.g.errors) > 1 else ""
-            put(scr, y, 1, fit(f"! {self.g.errors[0]}{more}", room), w, curses.color_pair(4))
+        elif self.g.errors or (self.view == "branches" and self.g.branch_errors):
+            errors = self.g.errors + (self.g.branch_errors if self.view == "branches" else [])
+            more = f" (+{len(errors) - 1} more)" if len(errors) > 1 else ""
+            put(scr, y, 1, fit(f"! {errors[0]}{more}", room), w, curses.color_pair(4))
         else:
             hints = {
-                "feed": "↑↓ move  ⏎ open  o browser  c copy sha  " + ("esc back  " if self.repo else "tab repos  ")
-                        + "r refresh  q quit",
-                "repos": "↑↓ move  ⏎ commits  o browser  tab feed  r refresh  q quit",
+                "feed": "↑↓ move  ⏎ open  o browser  c copy sha  "
+                        + ("esc back  " if self.repo or self.branch else "tab repos  ") + "r refresh  q quit",
+                "repos": "↑↓ move  ⏎ commits  o browser  tab branches  r refresh  q quit",
+                "branches": "↑↓ move  ⏎ its commits  o compare  c copy name  tab feed  r refresh  q quit",
                 "detail": "↑↓ scroll  n/p next/prev  o browser  c copy sha  esc back  q quit",
             }[self.view]
             put(scr, y, 1, fit(hints, room), w, dim())
@@ -509,7 +636,7 @@ class UI:
         t = max(0, min(t, len(lines) - height))
         self.top["feed"] = t
 
-        show_repo = self.repo is None
+        show_repo = self.repo is None and self.branch is None
         rw = min(18, max(len(self.g.labels.get(c["repo"], c["repo"])) for c in commits))
         aw = min(14, max(len(c["author"]) for c in commits)) if w >= 72 else 0
         show_sha = w >= 60
@@ -568,6 +695,94 @@ class UI:
             used = 1 + sum(len(text) for text, _ in runs)
             runs.append((fit(about, w - used - 1), dim()))
             if t + row == sel:
+                put(scr, y, 0, " " * w, w, curses.A_REVERSE)
+                runs = [(text, attr | curses.A_REVERSE) for text, attr in runs]
+            put_runs(scr, y, 1, runs, w)
+
+    # -------------------------------------------------------- branches
+
+    def branch_rows(self):
+        """([(repo, None, None) heading or (repo, branch, compare)], repos with only their default branch).
+        A repo's branches are newest first; ones not compared yet go last."""
+        rows, singles = [], 0
+        for r in self.g.repo_list():
+            branches = self.g.branches.get(r["name"])
+            if branches is None:
+                continue
+            others = [b for b in branches if not b["default"]]
+            if not others:
+                singles += 1
+                continue
+            found = [(b, self.g.compare(r["name"], b)) for b in others]
+            found.sort(key=lambda bf: -(bf[1]["when"] or 0) if isinstance(bf[1], dict) else 1)
+            rows.append((r, None, None))
+            rows += [(r, b, f) for b, f in found]
+        return rows, singles
+
+    def draw_branches(self, scr, top, height, w):
+        self.g.want_branches()
+        rows, singles = self.branch_rows()
+        if not rows:
+            if not self.g.loaded or self.g.branches_loading or not self.g.branches:
+                n = len(self.g.repos)
+                self.centre(scr, top + height // 2 - 1, w,
+                            f"listing the branches of {n} repos — a call each, and one per branch to compare" if n
+                            else "fetching the repos …", dim())
+            else:
+                self.centre(scr, top + height // 2 - 1, w,
+                            f"every repo has only its default branch ({singles})" if singles else "no branches", dim())
+            return
+        picks = [i for i, row in enumerate(rows) if row[1]]
+        keys = [(rows[i][0]["name"], rows[i][1]["name"]) for i in picks]
+        if self.sel_branch in keys:
+            self.sel["branches"] = keys.index(self.sel_branch)
+        sel = self.sel["branches"] = max(0, min(self.sel["branches"], len(picks) - 1))
+        self.sel_branch = keys[sel]
+        lines = rows + ([(None, None, singles)] if singles else [])
+        at = picks[sel]
+        want = at - 1 if rows[at - 1][1] is None else at       # keep the repo's heading in view
+        t = max(min(self.top["branches"], want), at - height + 1, 0)
+        t = self.top["branches"] = max(0, min(t, len(lines) - height))
+
+        found = [f for _, b, f in rows if b and isinstance(f, dict)]
+        peak = max([max(f["ahead"], f["behind"]) for f in found] + [1])
+        nw = min(28, max(len(b["name"]) for _, b, _ in rows if b) + 2)
+        half = max(0, min(12, (w - nw - 34) // 2))   # each side of the ahead/behind bar
+        for row, (r, b, f) in enumerate(lines[t: t + height]):
+            y = top + row
+            if r is None:
+                put(scr, y, 3, f"{f} more repo{'s' * (f != 1)} with only a default branch", w, dim())
+                continue
+            if b is None:
+                n = len(self.g.branches.get(r["name"], [])) - 1
+                more = f" (the first {MAX_COMPARES} compared)" if n > MAX_COMPARES else ""
+                put_runs(scr, y, 1, [(self.g.labels.get(r["name"], r["name"]), self.repo_attr(r["name"]) | curses.A_BOLD),
+                                     (f"  {n} branch{'es' * (n != 1)} besides {r['default']}{more} ", dim()),
+                                     ("─" * w, dim())], w - 1)
+                continue
+            runs = [("  ", 0), (fit(b["name"], nw), curses.A_BOLD)]
+            if isinstance(f, dict):
+                state, attr = (("same as " + r["default"], dim()) if not f["ahead"] and not f["behind"]
+                               else ("merged", dim()) if not f["ahead"]
+                               else ("ahead", curses.color_pair(2)) if not f["behind"]
+                               else ("diverged", curses.color_pair(3)))
+                behind = -(-f["behind"] * half // peak) if f["behind"] else 0
+                ahead = -(-f["ahead"] * half // peak) if f["ahead"] else 0
+                if w < 70:                 # no room for the bar: −behind +ahead
+                    runs += [(f"{'−' + str(f['behind']):>6} ", curses.color_pair(4) if f["behind"] else dim()),
+                             (f"{'+' + str(f['ahead']):<6}", curses.color_pair(2) if f["ahead"] else dim()),
+                             (f"{ago(f['when']) if f['when'] else '—':>4}  ", dim()), (state, attr)]
+                else:
+                    runs += [(f"{f['behind']:>5} behind ", curses.color_pair(4) if f["behind"] else dim()),
+                             (" " * (half - behind), 0), ("█" * behind, curses.color_pair(4)), ("│", dim()),
+                             ("█" * ahead, curses.color_pair(2)), (" " * (half - ahead), 0),
+                             (f" {str(f['ahead']) + ' ahead':<10}", curses.color_pair(2) if f["ahead"] else dim()),
+                             (f"{ago(f['when']) if f['when'] else '—':>4}  ", dim()), (state, attr)]
+            elif isinstance(f, str):
+                runs.append((f"! {f}", curses.color_pair(4)))
+            else:
+                runs.append(("comparing …" if self.g.branches_loading else "not compared", dim()))
+            if t + row == at:
                 put(scr, y, 0, " " * w, w, curses.A_REVERSE)
                 runs = [(text, attr | curses.A_REVERSE) for text, attr in runs]
             put_runs(scr, y, 1, runs, w)
@@ -658,9 +873,11 @@ class UI:
                 if self.g.loading:
                     self.say("fetching …", dim())
         elif key == ord("\t"):
-            self.view = "feed" if self.view == "repos" else "repos"
+            self.view = {"feed": "repos", "repos": "branches", "branches": "feed", "detail": "repos"}[self.view]
             if self.view == "feed":
-                self.repo = None
+                self.repo = self.branch = None
+        elif self.view == "branches":
+            self.branches_key(key, page)
         elif self.view == "feed":
             self.feed_key(key, page)
         elif self.view == "repos":
@@ -685,6 +902,8 @@ class UI:
         c = commits[self.sel["feed"]] if commits else None
         if key in OPEN_KEYS:
             self.view, self.commit, self.scroll = "detail", c, 0
+        elif key in BACK_KEYS and self.branch:
+            self.view, self.branch = "branches", None
         elif key in BACK_KEYS and self.repo:
             self.view, self.repo = "repos", None
         elif key == ord("o"):
@@ -698,10 +917,29 @@ class UI:
             return
         r = repos[self.sel["repos"]]
         if key in OPEN_KEYS:
-            self.view, self.repo = "feed", r["name"]
+            self.view, self.repo, self.branch = "feed", r["name"], None
             self.sel["feed"], self.top["feed"], self.sel_key = 0, 0, None
         elif key == ord("o"):
             self.browse(r["url"])
+
+    def branches_key(self, key, page):
+        rows = [row for row in self.branch_rows()[0] if row[1]]
+        if self.nav(key, page, len(rows)) or not rows:
+            return
+        repo, b, found = rows[self.sel["branches"]]
+        if key in OPEN_KEYS:
+            if isinstance(found, dict) and found["commits"]:
+                self.view, self.branch, self.repo = "feed", (repo["name"], b), None
+                self.sel["feed"], self.top["feed"], self.sel_key = 0, 0, None
+            elif isinstance(found, dict):
+                self.say(f"{b['name']} has nothing that {repo['default']} doesn't", dim())
+            else:
+                self.say(f"{b['name']} hasn't been compared", dim())
+        elif key == ord("o"):
+            q = urllib.parse.quote
+            self.browse(f"{repo['url']}/compare/{q(repo['default'], safe='')}...{q(b['name'], safe='')}")
+        elif key == ord("c"):
+            self.copy(b["name"])
 
     def detail_key(self, key, page):
         steps = {curses.KEY_UP: -1, ord("k"): -1, curses.KEY_DOWN: 1, ord("j"): 1,
@@ -784,6 +1022,35 @@ def print_once(args):
     return 1 if glance.errors and not commits else 0
 
 
+def print_branches(args):
+    bold, dim_, green, red, reset = "\033[1m", "\033[2m", "\033[32m", "\033[31m", "\033[0m"
+    glance = Glance(args.targets, args.repos)
+    glance.load()
+    glance.branches_loading = True
+    glance.load_branches()
+    for err in glance.errors + glance.branch_errors:
+        print(f"{red}error:{reset} {err}")
+    singles = 0
+    for r in glance.repo_list():
+        branches = [b for b in glance.branches.get(r["name"], []) if not b["default"]]
+        if not branches:
+            singles += r["name"] in glance.branches
+            continue
+        print(f"{bold}{glance.labels[r['name']]}{reset}  {dim_}besides {r['default']}{reset}")
+        nw = max(len(b["name"]) for b in branches)
+        for b in branches:
+            f = glance.compare(r["name"], b)
+            if isinstance(f, dict):
+                print(f"  {b['name']:<{nw}}  {red if f['behind'] else dim_}{f['behind']:>5} behind{reset}  "
+                      f"{green if f['ahead'] else dim_}{f['ahead']:>5} ahead{reset}  "
+                      f"{dim_}{ago(f['when']) + ' ago' if f['when'] else ''}{reset}")
+            else:
+                print(f"  {b['name']:<{nw}}  {dim_}{f or 'not compared'}{reset}")
+    if singles:
+        print(f"{dim_}{singles} more repo{'s' * (singles != 1)} with only a default branch{reset}")
+    return 1 if (glance.errors or glance.branch_errors) and not glance.branches else 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="The recent commits of GitHub repos at a glance.",
@@ -794,12 +1061,16 @@ def main():
                         help=f"most recently pushed repos to show per owner (default {MAX_REPOS})")
     parser.add_argument("--once", nargs="?", const=20, type=int, metavar="N",
                         help="print the N newest commits (default 20) and exit")
+    parser.add_argument("--branches", action="store_true",
+                        help="print each repo's branches, how far ahead of and behind the default branch, and exit")
     args = parser.parse_args()
     args.targets = [t for t in map(normalize_target, args.targets or DEFAULT_TARGETS) if t]
     if not args.targets:
         parser.error("no owner or repo given")
     if args.once:
         raise SystemExit(print_once(args))
+    if args.branches:
+        raise SystemExit(print_branches(args))
     os.environ.setdefault("ESCDELAY", "25")
     locale.setlocale(locale.LC_ALL, "")
     try:
