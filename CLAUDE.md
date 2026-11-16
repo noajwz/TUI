@@ -12,15 +12,21 @@ installed on this machine and there is no pyproject/ruff.toml** — it runs with
 
 Three shapes exist and each new script should follow one of them:
 
-- **curses TUIs** (`bbc_tui`, `bt_battery_tui`, `compound_tui`, `crypto_tui`, `election_tui`, `disk_usage_tui`, `spotify_chart_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `calendar_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`, `typing_tui`, `git_glance_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
-  a `stdscr.timeout(...)` + `stdscr.getch()` event loop, module-level constants for tunables
-  (`REFRESH_SECONDS`, `MIN_LEN`/`MAX_LEN`, option tables).
-- **CLI scripts** (`btc_tx_check`, `wiki_reader`): `argparse` in `main()`, raw ANSI escape constants
-  (`BOLD`, `CYAN`, `RESET`, …) defined at module top rather than a color library, and network helpers
-  that return `(data, error)` tuples instead of raising.
-- **`wiki_tui`** and **`termimage`**, the two larger programs, described below. `psychonaut_tui` is a
-  fork of `wiki_tui` and `archwiki_tui` a fork of that, both described below. `chan_tui` borrows `wiki_tui`'s pieces (`call()`,
-  `prompt()`, Tab-selected links) but shares no code with it; also described below.
+- **curses TUIs** (`bbc_tui`, `bt_battery_tui`, `compound_tui`, `crypto_tui`, `election_tui`, `disk_usage_tui`, `spotify_chart_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `calendar_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`, `typing_tui`, `git_glance_tui`, `usb_speed_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
+  a `stdscr.getch()` event loop — with `stdscr.timeout(...)` in the ones that redraw on their own,
+  a plain blocking `getch()` in the ones that only react to keys — and module-level constants for
+  tunables (`REFRESH_SECONDS`, `MIN_LEN`/`MAX_LEN`, option tables).
+- **CLI scripts** (`btc_tx_check`, `wiki_reader`): `argparse` in `main()` and raw ANSI escape constants
+  (`BOLD`, `CYAN`, `RESET`, …) defined at module top rather than a color library. `btc_tx_check`'s
+  network helpers return `(data, error)` tuples instead of raising; `wiki_reader`'s raise and are
+  caught in `main()`.
+- **`wiki_tui`** and **`termimage`**, the two larger programs. `psychonaut_tui` is a fork of
+  `wiki_tui` and `archwiki_tui` a fork of that. `chan_tui` borrows `wiki_tui`'s pieces (`call()`,
+  `prompt()`, Tab-selected links) but shares no code with it. Each has its notes in
+  `.claude/rules/` (see the end of this file).
+
+`tictactoe.py` is the one exception and fits none of them: a plain `input()`/`print()` loop with
+no curses and no argparse. Leave it as it is, but don't use it as a template.
 
 `ascii_city.py` used to live here and has moved to its own repository,
 [`noajwz/ascii_city`](https://github.com/noajwz/ascii_city) — it outgrew being one script among
