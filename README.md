@@ -29,6 +29,7 @@ script runs on its own with `python3`.
 | `disk_usage_tui.py` | What is filling the disk, in the manner of WinDirStat — folders by size, a shaded treemap, file types and the largest files, with reveal in Finder and move to Trash |
 | `usb_speed_tui.py` | Read and write speed of USB drives, sequential and 4K random, with a live graph |
 | `folder_watch_tui.py` | Watches a folder for changes — files created, deleted, modified and renamed below it, as a live log with an activity strip |
+| `test_watch_tui.py` | Reruns a Python project's tests on every save (unittest or pytest) — failures first, tracebacks a key away, rerun only what failed, jump to the line in your editor |
 | `pwgen_tui.py` | Password generator with a curses interface |
 | `typing_tui.py` | Typing speed test — timed or word-count runs, WPM, accuracy, a per-second chart and personal bests |
 | `wordle_tui.py` | Wordle — six tries at a five-letter word, with hard mode and a shareable grid |
