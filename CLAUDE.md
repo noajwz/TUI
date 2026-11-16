@@ -12,7 +12,7 @@ installed on this machine and there is no pyproject/ruff.toml** — it runs with
 
 Three shapes exist and each new script should follow one of them:
 
-- **curses TUIs** (`bbc_tui`, `bt_battery_tui`, `compound_tui`, `crypto_tui`, `election_tui`, `disk_usage_tui`, `spotify_chart_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `calendar_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`, `typing_tui`, `git_glance_tui`, `usb_speed_tui`, `folder_watch_tui`, `test_watch_tui`, `text_stats_tui`, `csv_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
+- **curses TUIs** (`bbc_tui`, `bt_battery_tui`, `compound_tui`, `crypto_tui`, `election_tui`, `disk_usage_tui`, `spotify_chart_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `calendar_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`, `typing_tui`, `git_glance_tui`, `usb_speed_tui`, `folder_watch_tui`, `test_watch_tui`, `text_stats_tui`, `csv_tui`, `md_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
   a `stdscr.getch()` event loop — with `stdscr.timeout(...)` in the ones that redraw on their own,
   a plain blocking `getch()` in the ones that only react to keys — and module-level constants for
   tunables (`REFRESH_SECONDS`, `MIN_LEN`/`MAX_LEN`, option tables).
