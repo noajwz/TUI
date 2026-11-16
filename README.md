@@ -34,6 +34,7 @@ script runs on its own with `python3`.
 | `md_tui.py` | Markdown reader — tables, code, quotes and footnotes rendered, links followable between files, contents, search, and a live redraw while you edit |
 | `url_tui.py` | Takes a URL apart and explains each piece — the real domain, tracking parameters, secrets, look-alike letters, links hidden inside links — with a clean copy and the redirect chain on request |
 | `unit_tui.py` | Unit converter you type at — `5 ft 11 in to cm`, `1 cup flour to g`, `8 L/100km to mpg`, `100 usd to eur` — with compound units, arithmetic and a live table of every unit of the kind |
+| `day_tui.py` | Plan the day in time blocks and track it with start/stop timers — plan and actual side by side on one timeline, and a summary of tracked against planned per day, week or month |
 | `text_stats_tui.py` | Lines of code, comments and blanks per programming language, word frequency, and text metrics — readability, line endings, indentation, encodings, TODOs |
 | `pwgen_tui.py` | Password generator with a curses interface |
 | `typing_tui.py` | Typing speed test — timed or word-count runs, WPM, accuracy, a per-second chart and personal bests |
