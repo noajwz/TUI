@@ -28,6 +28,7 @@ script runs on its own with `python3`.
 | `bt_battery_tui.py` | Battery levels of connected Bluetooth devices |
 | `disk_usage_tui.py` | What is filling the disk, in the manner of WinDirStat — folders by size, a shaded treemap, file types and the largest files, with reveal in Finder and move to Trash |
 | `usb_speed_tui.py` | Read and write speed of USB drives, sequential and 4K random, with a live graph |
+| `sort_tui.py` | Sorting algorithms animated as bars, like the videos — 37 of them from bubble to bitonic to bogosort, comparisons and writes lit up, races side by side, a demo mode, input shapes and rainbow colours |
 | `sql_tui.py` | SQL scratchpad for SQLite — schema browser, an editor with highlighting and name completion, results you can sort, copy and export; CSV files load as tables, databases open read-only unless asked |
 | `sunken_tui.py` | A roguelike in a drowned city — twelve depths down to the Tide-Heart, a tide that rises and falls, darkness and silence as cover, unidentified vials, shells and rods, tameable beasts, relics and shrine pacts, permadeath and a hall of records |
 | `magnet_tui.py` | Picks the magnet links and torrent info hashes out of any pasted text into a list — Enter copies one and moves to the next, duplicates merged, the list kept between runs, and an optional watch on the clipboard |
