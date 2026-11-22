@@ -28,6 +28,7 @@ script runs on its own with `python3`.
 | `bt_battery_tui.py` | Battery levels of connected Bluetooth devices |
 | `disk_usage_tui.py` | What is filling the disk, in the manner of WinDirStat — folders by size, a shaded treemap, file types and the largest files, with reveal in Finder and move to Trash |
 | `usb_speed_tui.py` | Read and write speed of USB drives, sequential and 4K random, with a live graph |
+| `spiro_tui.py` | Spirograph — a toothed wheel rolls round a ring and the pen draws in fine braille lines, layered in colours or a rainbow, with presets, random designs and a demo mode |
 | `clock_tui.py` | Analog clock drawn in braille — with the date, ISO week, day of the year, the moon's phase, sunrise and sunset, progress through the day, week, month and year, a calendar with week numbers, and world clocks |
 | `bits_tui.py` | Bit explorer — a number as 8 to 64 bits you can flip, shift and rotate, read as unsigned, signed, hex, bytes in both orders, a character, and an IEEE-754 float taken apart to its exact value |
 | `sort_tui.py` | Sorting algorithms animated as bars, like the videos — 37 of them from bubble to bitonic to bogosort, comparisons and writes lit up, races side by side, a demo mode, input shapes and rainbow colours |
