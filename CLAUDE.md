@@ -12,14 +12,13 @@ installed on this machine and there is no pyproject/ruff.toml** — it runs with
 
 Three shapes exist and each new script should follow one of them:
 
-- **curses TUIs** (`bbc_tui`, `bt_battery_tui`, `compound_tui`, `crypto_tui`, `election_tui`, `disk_usage_tui`, `spotify_chart_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `calendar_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`, `typing_tui`, `git_glance_tui`, `usb_speed_tui`, `folder_watch_tui`, `test_watch_tui`, `text_stats_tui`, `csv_tui`, `md_tui`, `url_tui`, `unit_tui`, `day_tui`, `file_tool_tui`, `json_peek_tui`, `diff_tui`, `magnet_tui`, `sunken_tui`, `sql_tui`, `sort_tui`, `bits_tui`, `clock_tui`, `spiro_tui`, `life_tui`, `cascade_tui`, `snake_tui`): `main(stdscr)` launched via `curses.wrapper(main)`,
+- **curses TUIs** (`bbc_tui`, `bt_battery_tui`, `compound_tui`, `crypto_tui`, `election_tui`, `disk_usage_tui`, `spotify_chart_tui`, `pwgen_tui`, `claude_usage_tui`, `rooster_tui`, `reminders_tui`, `calendar_tui`, `wordle_tui`, `minesweeper_tui`, `pokemon_types_tui`, `typing_tui`, `git_glance_tui`, `usb_speed_tui`, `folder_watch_tui`, `test_watch_tui`, `text_stats_tui`, `csv_tui`, `md_tui`, `url_tui`, `unit_tui`, `day_tui`, `file_tool_tui`, `json_peek_tui`, `diff_tui`, `magnet_tui`, `sunken_tui`, `sql_tui`, `sort_tui`, `bits_tui`, `clock_tui`, `spiro_tui`, `life_tui`, `cascade_tui`, `snake_tui`, `tx_check`): `main(stdscr)` launched via `curses.wrapper(main)`,
   a `stdscr.getch()` event loop — with `stdscr.timeout(...)` in the ones that redraw on their own,
   a plain blocking `getch()` in the ones that only react to keys — and module-level constants for
   tunables (`REFRESH_SECONDS`, `MIN_LEN`/`MAX_LEN`, option tables).
-- **CLI scripts** (`btc_tx_check`, `wiki_reader`): `argparse` in `main()` and raw ANSI escape constants
-  (`BOLD`, `CYAN`, `RESET`, …) defined at module top rather than a color library. `btc_tx_check`'s
-  network helpers return `(data, error)` tuples instead of raising; `wiki_reader`'s raise and are
-  caught in `main()`.
+- **CLI scripts** (`wiki_reader`): `argparse` in `main()` and raw ANSI escape constants
+  (`BOLD`, `CYAN`, `RESET`, …) defined at module top rather than a color library. `wiki_reader`'s
+  network helpers raise and are caught in `main()`.
 - **`wiki_tui`** and **`termimage`**, the two larger programs. `psychonaut_tui` is a fork of
   `wiki_tui` and `archwiki_tui` a fork of that. `chan_tui` borrows `wiki_tui`'s pieces (`call()`,
   `prompt()`, Tab-selected links) but shares no code with it. Each has its notes in
