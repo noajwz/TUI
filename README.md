@@ -24,7 +24,7 @@ script runs on its own with `python3`.
 | `spotify_chart_tui.py` | The top 100 songs on Spotify as a bar chart — daily, weekly and all time, with rank movement |
 | `election_tui.py` | Every US presidential election since 1788, with the electoral map, results and state-by-state table of each |
 | `git_glance_tui.py` | Recent commits of GitHub repos at a glance — one feed across every repo, 14-day activity per repo, each branch's lead or lag on the default branch, and each commit's message and changed files |
-| `btc_tx_check.py` | Looks up a Bitcoin, Dogecoin or Ethereum transaction by its hash |
+| `tx_check.py` | Bitcoin, Dogecoin and Ethereum transactions by hash — recognises the coin, a tab for each, and refreshes to follow the confirmations |
 | `bt_battery_tui.py` | Battery levels of connected Bluetooth devices |
 | `disk_usage_tui.py` | What is filling the disk, in the manner of WinDirStat — folders by size, a shaded treemap, file types and the largest files, with reveal in Finder and move to Trash |
 | `usb_speed_tui.py` | Read and write speed of USB drives, sequential and 4K random, with a live graph |
